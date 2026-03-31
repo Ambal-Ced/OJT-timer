@@ -12,10 +12,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import qrcode
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.abspath(os.path.join(BASE_DIR, os.pardir))
 DATABASE = os.path.join(BASE_DIR, "ojt.db")
 # ID templates live in repo-level `resources/`
-ID_FRONT_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "front_id.png")
-ID_BACK_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "back_id.png")
+ID_FRONT_TEMPLATE_PATH = os.path.join(PROJECT_DIR, "resources", "front_id.png")
+ID_BACK_TEMPLATE_PATH = os.path.join(PROJECT_DIR, "resources", "back_id.png")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 
 _FRONT_REF_W = 709
@@ -25,15 +26,6 @@ _FRONT_PHOTO_LEFT = 206
 _FRONT_PHOTO_TOP = 294
 _FRONT_PHOTO_RIGHT = 502
 _FRONT_PHOTO_BOTTOM = 599
-
-_BACK_REF_W = 709
-_BACK_REF_H = 1004
-# Calibrated to `resources/back_id.png` (709×1004). This is the QR square frame.
-_BACK_QR_LEFT = 174
-_BACK_QR_TOP = 382
-_BACK_QR_RIGHT = 534
-_BACK_QR_BOTTOM = 692
-_BACK_QR_INSET = 0
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 ADMIN_PASSWORD = os.environ.get("OJT_ADMIN_PASSWORD", "Melo1234")
 # Bind address. Use 0.0.0.0 to allow other PCs on the network to connect.
@@ -463,9 +455,7 @@ def api_scan():
 
 @app.post("/api/register")
 def api_register():
-    is_multipart = bool(
-        request.content_type and "multipart/form-data" in request.content_type
-    )
+    is_multipart = bool(request.content_type and "multipart/form-data" in request.content_type)
     if is_multipart:
         data = request.form or {}
         files = request.files or {}
@@ -479,6 +469,7 @@ def api_register():
     course = (data.get("course") or "").strip()
     sr_code = (data.get("sr_code") or "").strip()
     password = data.get("password") or ""
+
     try:
         batch_id = int(data.get("batch_id"))
         required_hours = float(data.get("required_hours"))
@@ -702,17 +693,6 @@ def _front_photo_box(im_w, im_h):
     return left, top, right, bottom
 
 
-def _back_qr_box(im_w, im_h):
-    sx = im_w / _BACK_REF_W
-    sy = im_h / _BACK_REF_H
-    left = round(_BACK_QR_LEFT * sx)
-    top = round(_BACK_QR_TOP * sy)
-    right = round(_BACK_QR_RIGHT * sx)
-    bottom = round(_BACK_QR_BOTTOM * sy)
-    inset = max(0, int(round(_BACK_QR_INSET * min(sx, sy))))
-    return left + inset, top + inset, right - inset, bottom - inset
-
-
 def _pick_id_font(size):
     # Prefer system fonts; fall back to PIL default bitmap font.
     for fp in (
@@ -762,19 +742,17 @@ def _draw_front_id_text(template, full_name, course):
 
     draw = ImageDraw.Draw(template)
     if name:
-        up = name.upper()
-        f1 = fit_font(up, max_size=max(18, int(round(im_h * 0.04))), min_size=14)
-        b1 = draw.textbbox((0, 0), up, font=f1)
+        f1 = fit_font(name.upper(), max_size=max(18, int(round(im_h * 0.04))), min_size=14)
+        b1 = draw.textbbox((0, 0), name.upper(), font=f1)
         nx = x0 + ((x1 - x0) - (b1[2] - b1[0])) // 2
-        draw.text((nx, y0), up, fill=(120, 0, 0), font=f1)
+        draw.text((nx, y0), name.upper(), fill=(120, 0, 0), font=f1)
         y0 += (b1[3] - b1[1]) + line_gap
 
     if first:
-        up1 = first.upper()
-        f2 = fit_font(up1, max_size=max(22, int(round(im_h * 0.055))), min_size=16)
-        b2 = draw.textbbox((0, 0), up1, font=f2)
+        f2 = fit_font(first.upper(), max_size=max(22, int(round(im_h * 0.055))), min_size=16)
+        b2 = draw.textbbox((0, 0), first.upper(), font=f2)
         fx = x0 + ((x1 - x0) - (b2[2] - b2[0])) // 2
-        draw.text((fx, y0), up1, fill=(120, 0, 0), font=f2)
+        draw.text((fx, y0), first.upper(), fill=(120, 0, 0), font=f2)
         y0 += (b2[3] - b2[1]) + line_gap
 
     c = (course or "").strip()
@@ -795,12 +773,6 @@ def _load_user_photo(photo_filename):
         return Image.open(p).convert("RGB")
     except OSError:
         return None
-
-
-def _safe_filename_stem(text):
-    t = re.sub(r"[^\w\-.]+", "_", (text or "").strip(), flags=re.UNICODE)
-    t = re.sub(r"_+", "_", t).strip("._-")
-    return (t or "")[:120]
 
 
 def build_front_id_png(full_name, course, photo_filename):
@@ -824,10 +796,7 @@ def build_front_id_png(full_name, course, photo_filename):
             new_h = int(round(new_w / tr))
         x0 = max(0, (photo.width - new_w) // 2)
         y0 = max(0, (photo.height - new_h) // 2)
-        photo = (
-            photo.crop((x0, y0, x0 + new_w, y0 + new_h))
-            .resize((w, h), Image.Resampling.LANCZOS)
-        )
+        photo = photo.crop((x0, y0, x0 + new_w, y0 + new_h)).resize((w, h), Image.Resampling.LANCZOS)
 
         mask = Image.new("L", (w, h), 0)
         md = ImageDraw.Draw(mask)
@@ -842,30 +811,20 @@ def build_front_id_png(full_name, course, photo_filename):
     return buf
 
 
-def build_back_id_png(sr_code):
+def build_back_id_png():
     if not os.path.isfile(ID_BACK_TEMPLATE_PATH):
         raise FileNotFoundError(ID_BACK_TEMPLATE_PATH)
     template = Image.open(ID_BACK_TEMPLATE_PATH).convert("RGB")
-    im_w, im_h = template.size
-    left, top, right, bottom = _back_qr_box(im_w, im_h)
-    w = max(1, right - left)
-    h = max(1, bottom - top)
-
-    qr = qrcode.QRCode(
-        version=None,
-        error_correction=ERROR_CORRECT_M,
-        box_size=10,
-        border=0,
-    )
-    qr.add_data(sr_code)
-    qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    qr_img = qr_img.resize((w, h), Image.Resampling.LANCZOS)
-    template.paste(qr_img, (left, top))
     buf = io.BytesIO()
     template.save(buf, format="PNG", optimize=True)
     buf.seek(0)
     return buf
+
+
+def _safe_filename_stem(text):
+    t = re.sub(r"[^\w\-.]+", "_", (text or "").strip(), flags=re.UNICODE)
+    t = re.sub(r"_+", "_", t).strip("._-")
+    return (t or "")[:120]
 
 
 @app.get("/api/account/user/<int:user_id>/id-card/front")
@@ -875,10 +834,7 @@ def api_account_id_card_front(user_id):
         return err
     db = get_db()
     cur = db.cursor()
-    cur.execute(
-        "SELECT name, course, photo_filename FROM ojt_users WHERE id = ?",
-        (user_id,),
-    )
+    cur.execute("SELECT name, course, photo_filename FROM ojt_users WHERE id = ?", (user_id,))
     row = cur.fetchone()
     if not row:
         return jsonify({"error": "Not found"}), 404
@@ -890,14 +846,12 @@ def api_account_id_card_front(user_id):
         return jsonify({"error": "Could not generate ID card"}), 500
     stem = _safe_filename_stem(row["name"]) or "OJT-ID"
     name = f"({stem})_front.png"
-    resp = send_file(
+    return send_file(
         buf,
         mimetype="image/png",
         as_attachment=True,
         download_name=name,
     )
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
 
 
 @app.get("/api/account/user/<int:user_id>/id-card/back")
@@ -907,134 +861,24 @@ def api_account_id_card_back(user_id):
         return err
     db = get_db()
     cur = db.cursor()
-    cur.execute("SELECT name, sr_code FROM ojt_users WHERE id = ?", (user_id,))
+    cur.execute("SELECT name FROM ojt_users WHERE id = ?", (user_id,))
     row = cur.fetchone()
     if not row:
         return jsonify({"error": "Not found"}), 404
     try:
-        buf = build_back_id_png(row["sr_code"])
+        buf = build_back_id_png()
     except FileNotFoundError:
         return jsonify({"error": "ID card template is missing on the server"}), 500
     except OSError:
         return jsonify({"error": "Could not generate ID card"}), 500
     stem = _safe_filename_stem(row["name"]) or "OJT-ID"
     name = f"({stem})_back.png"
-    resp = send_file(
+    return send_file(
         buf,
         mimetype="image/png",
         as_attachment=True,
         download_name=name,
     )
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/account/user/<int:user_id>/id-card/front/preview")
-def api_account_id_card_front_preview(user_id):
-    err = require_account_user(user_id)
-    if err:
-        return err
-    db = get_db()
-    cur = db.cursor()
-    cur.execute(
-        "SELECT name, course, photo_filename FROM ojt_users WHERE id = ?",
-        (user_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-    try:
-        buf = build_front_id_png(row["name"], row["course"], row["photo_filename"])
-    except FileNotFoundError:
-        return jsonify({"error": "ID card template is missing on the server"}), 500
-    except OSError:
-        return jsonify({"error": "Could not generate ID card"}), 500
-    resp = send_file(buf, mimetype="image/png", as_attachment=False)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/account/user/<int:user_id>/id-card/back/preview")
-def api_account_id_card_back_preview(user_id):
-    err = require_account_user(user_id)
-    if err:
-        return err
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("SELECT sr_code FROM ojt_users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-    try:
-        buf = build_back_id_png(row["sr_code"])
-    except FileNotFoundError:
-        return jsonify({"error": "ID card template is missing on the server"}), 500
-    except OSError:
-        return jsonify({"error": "Could not generate ID card"}), 500
-    resp = send_file(buf, mimetype="image/png", as_attachment=False)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/admin/user/<int:user_id>/id-card/front")
-def api_admin_user_id_card_front(user_id):
-    err = require_admin()
-    if err:
-        return err
-    db = get_db()
-    cur = db.cursor()
-    cur.execute(
-        "SELECT name, course, photo_filename FROM ojt_users WHERE id = ?",
-        (user_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-    try:
-        buf = build_front_id_png(row["name"], row["course"], row["photo_filename"])
-    except FileNotFoundError:
-        return jsonify({"error": "ID card template is missing on the server"}), 500
-    except OSError:
-        return jsonify({"error": "Could not generate ID card"}), 500
-    stem = _safe_filename_stem(row["name"]) or "OJT-ID"
-    name = f"({stem})_front.png"
-    resp = send_file(
-        buf,
-        mimetype="image/png",
-        as_attachment=True,
-        download_name=name,
-    )
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
-@app.get("/api/admin/user/<int:user_id>/id-card/back")
-def api_admin_user_id_card_back(user_id):
-    err = require_admin()
-    if err:
-        return err
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("SELECT name, sr_code FROM ojt_users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-    try:
-        buf = build_back_id_png(row["sr_code"])
-    except FileNotFoundError:
-        return jsonify({"error": "ID card template is missing on the server"}), 500
-    except OSError:
-        return jsonify({"error": "Could not generate ID card"}), 500
-    stem = _safe_filename_stem(row["name"]) or "OJT-ID"
-    name = f"({stem})_back.png"
-    resp = send_file(
-        buf,
-        mimetype="image/png",
-        as_attachment=True,
-        download_name=name,
-    )
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
 
 
 @app.post("/api/account/user/<int:user_id>/photos")
@@ -1100,6 +944,60 @@ def api_account_user_update_photos(user_id):
     return jsonify({"ok": True})
 
 
+@app.get("/api/admin/user/<int:user_id>/id-card/front")
+def api_admin_user_id_card_front(user_id):
+    err = require_admin()
+    if err:
+        return err
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT name, course, photo_filename FROM ojt_users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    try:
+        buf = build_front_id_png(row["name"], row["course"], row["photo_filename"])
+    except FileNotFoundError:
+        return jsonify({"error": "ID card template is missing on the server"}), 500
+    except OSError:
+        return jsonify({"error": "Could not generate ID card"}), 500
+    stem = _safe_filename_stem(row["name"]) or "OJT-ID"
+    name = f"({stem})_front.png"
+    return send_file(
+        buf,
+        mimetype="image/png",
+        as_attachment=True,
+        download_name=name,
+    )
+
+
+@app.get("/api/admin/user/<int:user_id>/id-card/back")
+def api_admin_user_id_card_back(user_id):
+    err = require_admin()
+    if err:
+        return err
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT name FROM ojt_users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    try:
+        buf = build_back_id_png()
+    except FileNotFoundError:
+        return jsonify({"error": "ID card template is missing on the server"}), 500
+    except OSError:
+        return jsonify({"error": "Could not generate ID card"}), 500
+    stem = _safe_filename_stem(row["name"]) or "OJT-ID"
+    name = f"({stem})_back.png"
+    return send_file(
+        buf,
+        mimetype="image/png",
+        as_attachment=True,
+        download_name=name,
+    )
+
+
 @app.post("/api/admin/user/<int:user_id>/photos")
 def api_admin_user_update_photos(user_id):
     err = require_admin()
@@ -1110,9 +1008,7 @@ def api_admin_user_update_photos(user_id):
     files = request.files or {}
     photo = files.get("photo")
     extra = files.get("extra_photo")
-    if (not photo or not getattr(photo, "filename", "")) and (
-        not extra or not getattr(extra, "filename", "")
-    ):
+    if (not photo or not getattr(photo, "filename", "")) and (not extra or not getattr(extra, "filename", "")):
         return jsonify({"error": "No files uploaded"}), 400
 
     db = get_db()

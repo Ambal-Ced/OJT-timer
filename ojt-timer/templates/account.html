@@ -53,22 +53,6 @@
     <button type="button" class="btn" id="btn-download-id">Download ID (Front + Back)</button>
   </div>
   <p class="muted" style="margin-top:0.5rem">Front uses your uploaded picture and shows your name + first name + course. Back is the official back template (no name/SR-Code printed).</p>
-  <h4 class="section-heading">ID preview</h4>
-  <p class="muted section-heading__lead">This is exactly what will be downloaded.</p>
-  <div class="grid-2">
-    <div>
-      <div class="muted">Front</div>
-      <div class="qr-frame" style="background:transparent;padding:0;box-shadow:none">
-        <img id="id-preview-front" alt="Front ID preview" style="max-width:280px;border-radius:12px;border:1px solid var(--border)">
-      </div>
-    </div>
-    <div>
-      <div class="muted">Back</div>
-      <div class="qr-frame" style="background:transparent;padding:0;box-shadow:none">
-        <img id="id-preview-back" alt="Back ID preview" style="max-width:280px;border-radius:12px;border:1px solid var(--border)">
-      </div>
-    </div>
-  </div>
   <h4 class="section-heading">Update picture</h4>
   <p class="muted section-heading__lead">Upload a new picture to update your Front ID without re-registering.</p>
   <div class="grid-2">
@@ -240,13 +224,9 @@
     document.getElementById('detail-sr-code').textContent = u.sr_code || '';
     const frontUrl = '/api/account/user/' + selectedUserId + '/id-card/front';
     const backUrl = '/api/account/user/' + selectedUserId + '/id-card/back';
-    const frontPrev = '/api/account/user/' + selectedUserId + '/id-card/front/preview';
-    const backPrev = '/api/account/user/' + selectedUserId + '/id-card/back/preview';
     document.getElementById('btn-download-id').onclick = function () {
       downloadBoth(frontUrl, backUrl);
     };
-    document.getElementById('id-preview-front').src = frontPrev + '?t=' + Date.now();
-    document.getElementById('id-preview-back').src = backPrev + '?t=' + Date.now();
     document.getElementById('acct-photo-ok').classList.add('hidden');
     document.getElementById('acct-photo-err').classList.add('hidden');
     document.getElementById('acct-photo').value = '';
