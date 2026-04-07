@@ -39,5 +39,68 @@ create table if not exists public.time_entries (
 
 create index if not exists idx_time_entries_user on public.time_entries(user_id);
 
--- For this app, PostgREST/RLS is not used directly (the Flask server talks to Postgres).
--- Keep RLS enabled if you want; just ensure your DATABASE_URL user can access these tables.
+-- ---------------------------------------------------------------------------
+-- Row Level Security (RLS)
+--
+-- Supabase Data API (REST) uses roles `anon` (JWT anon key) and `authenticated`
+-- (logged-in users). Policies below block those roles from reading/writing tables
+-- directly. Your Flask app uses DATABASE_URL as the database user `postgres`
+-- (or pooler equivalent), which bypasses RLS — so your existing Python queries
+-- keep working.
+--
+-- The `service_role` JWT bypasses RLS; never put it in browser code.
+-- ---------------------------------------------------------------------------
+
+alter table public.batches enable row level security;
+alter table public.ojt_users enable row level security;
+alter table public.time_entries enable row level security;
+
+-- Idempotent: drop then recreate policies (safe to re-run in SQL Editor).
+
+-- batches
+drop policy if exists "batches_block_anon" on public.batches;
+drop policy if exists "batches_block_authenticated" on public.batches;
+create policy "batches_block_anon"
+  on public.batches
+  for all
+  to anon
+  using (false)
+  with check (false);
+create policy "batches_block_authenticated"
+  on public.batches
+  for all
+  to authenticated
+  using (false)
+  with check (false);
+
+-- ojt_users (includes password_hash — must never be exposed via anon API)
+drop policy if exists "ojt_users_block_anon" on public.ojt_users;
+drop policy if exists "ojt_users_block_authenticated" on public.ojt_users;
+create policy "ojt_users_block_anon"
+  on public.ojt_users
+  for all
+  to anon
+  using (false)
+  with check (false);
+create policy "ojt_users_block_authenticated"
+  on public.ojt_users
+  for all
+  to authenticated
+  using (false)
+  with check (false);
+
+-- time_entries
+drop policy if exists "time_entries_block_anon" on public.time_entries;
+drop policy if exists "time_entries_block_authenticated" on public.time_entries;
+create policy "time_entries_block_anon"
+  on public.time_entries
+  for all
+  to anon
+  using (false)
+  with check (false);
+create policy "time_entries_block_authenticated"
+  on public.time_entries
+  for all
+  to authenticated
+  using (false)
+  with check (false);
