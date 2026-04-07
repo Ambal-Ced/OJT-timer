@@ -4,6 +4,8 @@ import re
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from urllib.parse import quote
 
 from flask import Flask, g, jsonify, render_template, request, send_file, session
@@ -60,6 +62,10 @@ DATABASE_URL = _normalize_database_url(
 USE_POSTGRES = bool(DATABASE_URL)
 SUPABASE_URL = _env_first("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_ANON_KEY = _env_first("SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = _env_first(
+    "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE"
+)
+SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "ojt-photos").strip()
 # ID templates live in repo-level `resources/`
 ID_FRONT_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "front_id.png")
 ID_BACK_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "back_id.png")
@@ -106,6 +112,7 @@ if os.environ.get("VERCEL") == "1":
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SUPABASE_URL"] = SUPABASE_URL
 app.config["SUPABASE_ANON_KEY"] = SUPABASE_ANON_KEY
+app.config["SUPABASE_STORAGE_BUCKET"] = SUPABASE_STORAGE_BUCKET
 
 
 @app.context_processor
@@ -114,6 +121,82 @@ def _inject_supabase_template_vars():
         "supabase_url": SUPABASE_URL,
         "supabase_anon_key": SUPABASE_ANON_KEY,
     }
+
+
+def _storage_headers():
+    if not SUPABASE_URL:
+        raise ConfigError("SUPABASE_URL is not set")
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        raise ConfigError(
+            "SUPABASE_SERVICE_ROLE_KEY is not set (required for Storage uploads on Vercel)."
+        )
+    return {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    }
+
+
+def _storage_put_object(bucket: str, object_path: str, content_type: str, body: bytes):
+    # PUT /storage/v1/object/<bucket>/<path>
+    url = (
+        SUPABASE_URL.rstrip("/")
+        + "/storage/v1/object/"
+        + quote(bucket, safe="")
+        + "/"
+        + quote(object_path.lstrip("/"), safe="/")
+    )
+    headers = _storage_headers()
+    headers.update(
+        {
+            "Content-Type": content_type,
+            "x-upsert": "true",
+        }
+    )
+    req = Request(url, data=body, headers=headers, method="PUT")
+    try:
+        with urlopen(req, timeout=20) as resp:
+            _ = resp.read()
+    except HTTPError as e:
+        raise RuntimeError(f"Storage upload failed: {e.code} {e.reason}") from e
+    except URLError as e:
+        raise RuntimeError(f"Storage upload failed: {e.reason}") from e
+
+
+def _storage_get_object_bytes(bucket: str, object_path: str) -> bytes:
+    url = (
+        SUPABASE_URL.rstrip("/")
+        + "/storage/v1/object/"
+        + quote(bucket, safe="")
+        + "/"
+        + quote(object_path.lstrip("/"), safe="/")
+    )
+    headers = _storage_headers()
+    req = Request(url, headers=headers, method="GET")
+    try:
+        with urlopen(req, timeout=20) as resp:
+            return resp.read()
+    except HTTPError:
+        return b""
+    except URLError:
+        return b""
+
+
+def _image_upload_to_storage(upload, object_path: str) -> str:
+    if not upload or getattr(upload, "filename", "") == "":
+        return ""
+    try:
+        im = Image.open(upload.stream)
+        im = im.convert("RGB")
+    except OSError:
+        raise ValueError("Invalid image file")
+    max_side = 1400
+    if max(im.size) > max_side:
+        im.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", optimize=True)
+    body = buf.getvalue()
+    _storage_put_object(SUPABASE_STORAGE_BUCKET, object_path, "image/png", body)
+    return object_path
 
 
 @app.errorhandler(ConfigError)
@@ -707,33 +790,44 @@ def api_register():
     if not cur.fetchone():
         return jsonify({"error": "Invalid batch"}), 400
 
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-    def save_image(upload, filename_prefix):
-        if not upload:
-            return ""
-        if getattr(upload, "filename", "") == "":
-            return ""
-        try:
-            im = Image.open(upload.stream)
-            im = im.convert("RGB")
-        except OSError:
-            raise ValueError("Invalid image file")
-        max_side = 1400
-        if max(im.size) > max_side:
-            im.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
-        out_name = f"{_safe_filename_stem(filename_prefix)}.png"
-        out_path = os.path.join(UPLOADS_DIR, out_name)
-        im.save(out_path, format="PNG", optimize=True)
-        return out_name
-
+    # Store photos in Supabase Storage when using Postgres (Vercel-safe).
+    # Keep SQLite/local behavior for offline/local-only usage.
     photo_filename = ""
     extra_photo_filename = ""
     try:
-        photo_filename = save_image(files.get("photo"), f"{sr_code}_photo")
-        extra_photo_filename = save_image(files.get("extra_photo"), f"{sr_code}_extra")
+        if USE_POSTGRES:
+            photo_filename = _image_upload_to_storage(
+                files.get("photo"),
+                f"users/{_safe_filename_stem(sr_code)}/photo.png",
+            )
+            # extra photo removed from UI; ignore if provided.
+        else:
+            os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+            def save_image(upload, filename_prefix):
+                if not upload:
+                    return ""
+                if getattr(upload, "filename", "") == "":
+                    return ""
+                try:
+                    im = Image.open(upload.stream)
+                    im = im.convert("RGB")
+                except OSError:
+                    raise ValueError("Invalid image file")
+                max_side = 1400
+                if max(im.size) > max_side:
+                    im.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+                out_name = f"{_safe_filename_stem(filename_prefix)}.png"
+                out_path = os.path.join(UPLOADS_DIR, out_name)
+                im.save(out_path, format="PNG", optimize=True)
+                return out_name
+
+            photo_filename = save_image(files.get("photo"), f"{sr_code}_photo")
+            extra_photo_filename = save_image(files.get("extra_photo"), f"{sr_code}_extra")
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    except (ConfigError, RuntimeError) as e:
+        return jsonify({"error": str(e)}), 500
 
     pw_hash = generate_password_hash(password)
     created = datetime.now().isoformat(timespec="seconds")
@@ -1000,10 +1094,15 @@ def _draw_front_id_text(template, full_name, course):
 def _load_user_photo(photo_filename):
     if not photo_filename:
         return None
-    p = os.path.join(UPLOADS_DIR, photo_filename)
-    if not os.path.isfile(p):
-        return None
     try:
+        if USE_POSTGRES:
+            raw = _storage_get_object_bytes(SUPABASE_STORAGE_BUCKET, photo_filename)
+            if not raw:
+                return None
+            return Image.open(io.BytesIO(raw)).convert("RGB")
+        p = os.path.join(UPLOADS_DIR, photo_filename)
+        if not os.path.isfile(p):
+            return None
         return Image.open(p).convert("RGB")
     except OSError:
         return None
