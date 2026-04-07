@@ -45,10 +45,6 @@
       <p class="field-hint muted">This will be used on your Front ID and should cover the whole frame.</p>
     </div>
     <div class="form-row">
-      <label class="label-field" for="extra_photo">Additional picture (optional)</label>
-      <input type="file" id="extra_photo" name="extra_photo" accept="image/*">
-    </div>
-    <div class="form-row">
       <label class="label-field" for="batch_id">OJT batch</label>
       <select id="batch_id" name="batch_id" required>
         <option value="">Loading batches…</option>
@@ -176,9 +172,7 @@
     fd.append('required_hours', document.getElementById('required_hours').value);
     fd.append('password', document.getElementById('password').value);
     const photo = document.getElementById('photo').files[0];
-    const extra = document.getElementById('extra_photo').files[0];
     if (photo) fd.append('photo', photo);
-    if (extra) fd.append('extra_photo', extra);
     try {
       const r = await fetch('/api/register', {
         method: 'POST',
