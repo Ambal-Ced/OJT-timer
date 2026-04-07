@@ -4,6 +4,7 @@ import re
 import sqlite3
 from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import quote
@@ -66,6 +67,13 @@ SUPABASE_SERVICE_ROLE_KEY = _env_first(
     "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE"
 )
 SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "ojt-photos").strip()
+
+# Use Philippine local time everywhere (store timestamps as naive "local" ISO strings).
+PH_TZ = ZoneInfo("Asia/Manila")
+
+
+def now_ph():
+    return datetime.now(PH_TZ).replace(tzinfo=None)
 # ID templates live in repo-level `resources/`
 ID_FRONT_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "front_id.png")
 ID_BACK_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "back_id.png")
@@ -547,7 +555,7 @@ def round_time_out(dt):
 
 
 def entry_duration_seconds(time_in, time_out, now=None):
-    now = now or datetime.now()
+    now = now or now_ph()
     tin = parse_dt(time_in)
     if not tin:
         return 0
@@ -564,7 +572,7 @@ def entry_duration_seconds(time_in, time_out, now=None):
 
 
 def sum_logged_seconds_for_user(cur, user_id, now=None):
-    now = now or datetime.now()
+    now = now or now_ph()
     cur.execute(
         "SELECT time_in, time_out FROM time_entries WHERE user_id = ? ORDER BY time_in",
         (user_id,),
@@ -622,13 +630,14 @@ def page_admin():
 
 @app.route("/api/server-time")
 def api_server_time():
-    now = datetime.now()
+    now = now_ph()
     return jsonify(
         {
             "iso": now.isoformat(timespec="seconds"),
             "date_display": now.strftime("%Y-%m-%d"),
             "time_display": now.strftime("%H:%M:%S"),
             "weekday": now.strftime("%A"),
+            "tz": "Asia/Manila",
         }
     )
 
@@ -671,7 +680,7 @@ def api_scan():
         return jsonify({"error": msg}), 404
 
     user_id = row["id"]
-    now = datetime.now()
+    now = now_ph()
     now_s = now.isoformat(timespec="seconds")
 
     open_entry = get_open_entry(cur, user_id)
@@ -830,7 +839,7 @@ def api_register():
         return jsonify({"error": str(e)}), 500
 
     pw_hash = generate_password_hash(password)
-    created = datetime.now().isoformat(timespec="seconds")
+    created = now_ph().isoformat(timespec="seconds")
     cols = _ojt_user_columns(cur)
     try:
         if "qr_token" in cols:
@@ -1509,7 +1518,7 @@ def api_account_user_detail(user_id):
     if not row:
         return jsonify({"error": "Not found"}), 404
 
-    now = datetime.now()
+    now = now_ph()
     spent_sec = sum_logged_seconds_for_user(cur, user_id, now)
     required_sec = float(row["required_hours"]) * 3600.0
     left_sec = max(0.0, required_sec - spent_sec)
@@ -1655,7 +1664,7 @@ def api_admin_create_batch():
         return jsonify({"error": "Batch name required"}), 400
     db = get_db()
     cur = db.cursor()
-    created = datetime.now().isoformat(timespec="seconds")
+    created = now_ph().isoformat(timespec="seconds")
     try:
         cur.execute(
             "INSERT INTO batches (name, created_at) VALUES (?, ?)",
@@ -1758,7 +1767,7 @@ def api_admin_user(user_id):
     row = cur.fetchone()
     if not row:
         return jsonify({"error": "Not found"}), 404
-    now = datetime.now()
+    now = now_ph()
     spent_sec = sum_logged_seconds_for_user(cur, user_id, now)
     required_sec = float(row["required_hours"]) * 3600.0
     left_sec = max(0.0, required_sec - spent_sec)
@@ -1881,7 +1890,7 @@ def api_admin_user_entries(user_id):
     cur.execute("SELECT id FROM ojt_users WHERE id = ?", (user_id,))
     if not cur.fetchone():
         return jsonify({"error": "Not found"}), 404
-    now = datetime.now()
+    now = now_ph()
     cur.execute(
         """
         SELECT id, time_in, time_out, session_note, time_in_method, time_out_method
