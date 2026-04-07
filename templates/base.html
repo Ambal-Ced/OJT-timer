@@ -6,6 +6,10 @@
   <meta name="application-name" content="Time Track OJT — LibSys">
   <meta name="apple-mobile-web-app-title" content="Time Track OJT">
   <meta name="description" content="OJT attendance: time in/out by QR or SR-Code. LibSys.">
+  {% if supabase_url and supabase_anon_key %}
+  <meta name="supabase-url" content="{{ supabase_url }}">
+  <meta name="supabase-anon-key" content="{{ supabase_anon_key }}">
+  {% endif %}
   <title>{% block title %}Time Track OJT — LibSys{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head_extra %}{% endblock %}
@@ -31,6 +35,9 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  {% if supabase_url and supabase_anon_key %}
+  <script type="module" src="{{ url_for('static', filename='js/supabase-client.mjs') }}"></script>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

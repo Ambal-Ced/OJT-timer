@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 from qrcode.constants import ERROR_CORRECT_M
 from werkzeug.security import check_password_hash, generate_password_hash
 import qrcode
+from dotenv import load_dotenv
 
 try:
     import psycopg2
@@ -23,6 +24,9 @@ DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,) + (
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+load_dotenv(os.path.join(BASE_DIR, ".env.local"), override=True)
+
 SQLITE_DATABASE = os.path.join(BASE_DIR, "ojt.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
@@ -58,6 +62,18 @@ ALLOWED_ENTRY_METHODS = frozenset({"scan", "manual"})
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = SECRET_KEY
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+app.config["SUPABASE_URL"] = SUPABASE_URL
+app.config["SUPABASE_ANON_KEY"] = SUPABASE_ANON_KEY
+
+
+@app.context_processor
+def _inject_supabase_template_vars():
+    return {
+        "supabase_url": SUPABASE_URL,
+        "supabase_anon_key": SUPABASE_ANON_KEY,
+    }
 
 
 class _DBCursor:
