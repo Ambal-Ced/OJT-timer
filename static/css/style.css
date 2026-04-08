@@ -951,6 +951,12 @@ button.danger:hover {
   gap: 0.6rem;
 }
 
+.progress-pct {
+  font-size: 0.82rem;
+  min-width: 3ch;
+  text-align: right;
+}
+
 .progress__bar {
   width: 160px;
   height: 10px;
