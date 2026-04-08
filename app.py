@@ -2141,18 +2141,31 @@ def api_admin_user_entries(user_id):
     err = require_admin()
     if err:
         return err
+    try:
+        page = int(request.args.get("page", "1"))
+    except (TypeError, ValueError):
+        page = 1
+    if page < 1:
+        page = 1
+    page_size = 5
+    offset = (page - 1) * page_size
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT id FROM ojt_users WHERE id = ?", (user_id,))
     if not cur.fetchone():
         return jsonify({"error": "Not found"}), 404
     now = now_ph()
+    cur.execute("SELECT COUNT(*) AS c FROM time_entries WHERE user_id = ?", (user_id,))
+    total = int((cur.fetchone() or {}).get("c") or 0)
     cur.execute(
         """
         SELECT id, time_in, time_out, session_note, time_in_method, time_out_method
-        FROM time_entries WHERE user_id = ? ORDER BY time_in
+        FROM time_entries
+        WHERE user_id = ?
+        ORDER BY time_in
+        LIMIT ? OFFSET ?
         """,
-        (user_id,),
+        (user_id, page_size, offset),
     )
     out = []
     for e in cur.fetchall():
@@ -2171,7 +2184,15 @@ def api_admin_user_entries(user_id):
                 "duration_label": dlabel,
             }
         )
-    return jsonify({"entries": out})
+    return jsonify(
+        {
+            "entries": out,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+        }
+    )
 
 
 @app.put("/api/admin/entry/<int:entry_id>")
