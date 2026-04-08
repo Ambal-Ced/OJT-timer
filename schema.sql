@@ -1,5 +1,9 @@
 -- Supabase Postgres schema for OJTTimer
 -- Apply in Supabase SQL Editor (or via migrations) before deploying to Vercel.
+--
+-- Durability: Vercel serverless has no persistent local disk. All relational data
+-- must live in this database (via DATABASE_URL / pooler). Binary assets use
+-- Supabase Storage, not the app's filesystem.
 
 create table if not exists public.batches (
   id bigserial primary key,
