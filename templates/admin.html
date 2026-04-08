@@ -563,11 +563,21 @@
   // Auto-fill time-out to same day + 11 hours (net ~10 hours after lunch deduction).
   const newEntryInEl = document.getElementById('new-entry-in');
   const newEntryOutEl = document.getElementById('new-entry-out');
+  let newEntryOutTouched = false;
+  newEntryOutEl.addEventListener('input', function () {
+    if (newEntryOutEl.value) {
+      newEntryOutTouched = true;
+    }
+  });
+  newEntryOutEl.addEventListener('focus', function () {
+    if (newEntryOutEl.value) {
+      newEntryOutTouched = true;
+    }
+  });
   newEntryInEl.addEventListener('input', function () {
     if (!newEntryInEl.value) return;
-    if (!newEntryOutEl.value) {
-      newEntryOutEl.value = autoTimeOutForAdmin(newEntryInEl.value);
-    }
+    if (newEntryOutTouched) return;
+    newEntryOutEl.value = autoTimeOutForAdmin(newEntryInEl.value);
   });
 })();
 </script>
