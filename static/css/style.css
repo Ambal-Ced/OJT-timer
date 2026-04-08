@@ -945,6 +945,39 @@ button.danger:hover {
   align-items: center;
 }
 
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.progress__bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+}
+
+.progress__fill--red {
+  background: rgba(255, 77, 77, 0.85);
+}
+
+.progress__fill--yellow {
+  background: rgba(255, 200, 61, 0.9);
+}
+
+.progress__fill--green {
+  background: rgba(74, 222, 128, 0.9);
+}
+
 .progress-pill {
   display: inline-flex;
   align-items: center;
@@ -956,6 +989,30 @@ button.danger:hover {
   color: var(--muted);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+.progress-pill--red {
+  border-color: rgba(255, 77, 77, 0.35);
+  color: rgba(255, 170, 170, 0.95);
+}
+
+.progress-pill--yellow {
+  border-color: rgba(255, 200, 61, 0.35);
+  color: rgba(255, 225, 140, 0.95);
+}
+
+.progress-pill--green {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: rgba(170, 255, 205, 0.95);
+}
+
+.list-item.skeleton .progress__bar,
+.list-item.skeleton .progress-pill {
+  display: none;
+}
+
+.list-item.skeleton::before {
+  height: 2.4rem;
 }
 
 .skeleton {

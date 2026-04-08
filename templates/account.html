@@ -174,6 +174,8 @@
       return;
     }
     d.users.forEach(function (u) {
+      const pct = Math.max(0, Math.min(100, Number(u.progress_pct || 0)));
+      const stage = (u.progress_stage || 'red');
       const el = document.createElement('div');
       el.className = 'list-item list-item--row';
       el.innerHTML =
@@ -182,7 +184,12 @@
           '<span class="muted">' + escapeHtml(u.course) + '</span>' +
         '</div>' +
         '<div class="list-item__right">' +
-          '<span class="progress-pill" title="Spent/Required hours">' + escapeHtml(u.progress_label || '') + '</span>' +
+          '<div class="progress">' +
+            '<div class="progress__bar" aria-hidden="true">' +
+              '<div class="progress__fill progress__fill--' + escapeHtml(stage) + '" style="width:' + pct + '%"></div>' +
+            '</div>' +
+            '<span class="progress-pill progress-pill--' + escapeHtml(stage) + '" title="Spent/Required hours">' + escapeHtml(u.progress_label || '') + '</span>' +
+          '</div>' +
         '</div>';
       el.addEventListener('click', function () {
         selectedUserId = u.id;

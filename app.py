@@ -400,6 +400,18 @@ def get_db():
     return db
 
 
+@app.after_request
+def _cache_shell_pages(resp):
+    # Make sidebar navigation feel snappy by letting Vercel/edge cache the HTML shell pages.
+    # API routes and downloads should not be cached here.
+    if request.method == "GET" and not request.path.startswith("/api/"):
+        if request.path in ("/", "/register", "/account", "/admin"):
+            resp.headers.setdefault(
+                "Cache-Control", "public, s-maxage=120, stale-while-revalidate=600"
+            )
+    return resp
+
+
 @app.teardown_appcontext
 def close_db(_exc):
     db = getattr(g, "_database", None)
@@ -1111,6 +1123,19 @@ def api_account_batch_users(batch_id):
             required_hours = int(round(float(r.get("required_hours") or 0)))
         except (TypeError, ValueError):
             required_hours = 0
+        pct = 0
+        if required_hours > 0:
+            pct = int(round((spent_hours / required_hours) * 100))
+            if pct < 0:
+                pct = 0
+            if pct > 100:
+                pct = 100
+        if pct < 40:
+            stage = "red"
+        elif pct < 80:
+            stage = "yellow"
+        else:
+            stage = "green"
         users.append(
             {
                 "id": r["id"],
@@ -1118,6 +1143,8 @@ def api_account_batch_users(batch_id):
                 "course": r["course"],
                 "spent_hours": spent_hours,
                 "required_hours": required_hours,
+                "progress_pct": pct,
+                "progress_stage": stage,
                 "progress_label": f"{spent_hours}/{required_hours} hours"
                 if required_hours
                 else f"{spent_hours}h",
