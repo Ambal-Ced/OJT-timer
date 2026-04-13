@@ -683,17 +683,34 @@ def sum_logged_seconds_for_user(cur, user_id, now=None):
     return total
 
 
+def _open_time_out_sql():
+    """Treat NULL or empty time_out as an open session (admin/manual edits may use '')."""
+    return "(time_out IS NULL OR TRIM(COALESCE(time_out, '')) = '')"
+
+
 def get_open_entry(cur, user_id):
+    open_sql = _open_time_out_sql()
     cur.execute(
-        """
+        f"""
         SELECT id, time_in, time_out, time_in_method, time_out_method
         FROM time_entries
-        WHERE user_id = ? AND time_out IS NULL
+        WHERE user_id = ? AND {open_sql}
         ORDER BY time_in DESC LIMIT 1
         """,
         (user_id,),
     )
     return cur.fetchone()
+
+
+def _acquire_user_clock_lock(db, cur, user_id):
+    """Prevent concurrent clock actions from creating duplicate open sessions for one user."""
+    if USE_POSTGRES:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(?, ?)",
+            (3849201, int(user_id)),
+        )
+    else:
+        db.execute("BEGIN IMMEDIATE")
 
 
 def user_row_to_dict(row):
@@ -783,29 +800,37 @@ def api_scan():
     now = now_ph()
     now_s = now.isoformat(timespec="seconds")
 
-    open_entry = get_open_entry(cur, user_id)
-    action = None
-    if open_entry:
-        out_dt = round_time_out(now)
-        out_s = out_dt.isoformat(timespec="seconds")
-        cur.execute(
-            """
-            UPDATE time_entries SET time_out = ?, time_out_method = ?
-            WHERE id = ?
-            """,
-            (out_s, method, open_entry["id"]),
-        )
-        action = "time_out"
-    else:
-        cur.execute(
-            """
-            INSERT INTO time_entries (user_id, time_in, time_out, time_in_method, time_out_method)
-            VALUES (?, ?, NULL, ?, NULL)
-            """,
-            (user_id, now_s, method),
-        )
-        action = "time_in"
-    db.commit()
+    try:
+        _acquire_user_clock_lock(db, cur, user_id)
+        open_entry = get_open_entry(cur, user_id)
+        action = None
+        if open_entry:
+            out_dt = round_time_out(now)
+            out_s = out_dt.isoformat(timespec="seconds")
+            cur.execute(
+                """
+                UPDATE time_entries SET time_out = ?, time_out_method = ?
+                WHERE id = ?
+                """,
+                (out_s, method, open_entry["id"]),
+            )
+            action = "time_out"
+        else:
+            cur.execute(
+                """
+                INSERT INTO time_entries (user_id, time_in, time_out, time_in_method, time_out_method)
+                VALUES (?, ?, NULL, ?, NULL)
+                """,
+                (user_id, now_s, method),
+            )
+            action = "time_in"
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
     cache_clear_prefix("account_batch_users:")
 
     spent_sec = sum_logged_seconds_for_user(cur, user_id, now)
@@ -2148,7 +2173,6 @@ def api_admin_user_entries(user_id):
     if page < 1:
         page = 1
     page_size = 5
-    offset = (page - 1) * page_size
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT id FROM ojt_users WHERE id = ?", (user_id,))
@@ -2157,6 +2181,10 @@ def api_admin_user_entries(user_id):
     now = now_ph()
     cur.execute("SELECT COUNT(*) AS c FROM time_entries WHERE user_id = ?", (user_id,))
     total = int((cur.fetchone() or {}).get("c") or 0)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * page_size
     cur.execute(
         """
         SELECT id, time_in, time_out, session_note, time_in_method, time_out_method
@@ -2190,7 +2218,7 @@ def api_admin_user_entries(user_id):
             "page": page,
             "page_size": page_size,
             "total": total,
-            "total_pages": max(1, (total + page_size - 1) // page_size),
+            "total_pages": total_pages,
         }
     )
 

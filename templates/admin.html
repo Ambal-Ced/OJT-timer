@@ -156,6 +156,7 @@
   let selectedAdminBatchId = null;
   let selectedAdminBatchName = '';
   let entriesPage = 1;
+  let lastEntryListTotalPages = 1;
 
   function toLocalInput(iso) {
     if (!iso) return '';
@@ -254,15 +255,18 @@
   }
 
   async function loadAdminBatches() {
+    const box = document.getElementById('admin-batch-list');
+    box.innerHTML =
+      '<div class="list-item skeleton"></div><div class="list-item skeleton"></div><div class="list-item skeleton"></div>';
     const r = await fetch('/api/admin/batches');
     if (r.status === 403) {
       document.getElementById('admin-app').classList.add('hidden');
       document.getElementById('admin-login-panel').classList.remove('hidden');
+      box.innerHTML = '';
       return;
     }
     const d = await r.json();
     const batches = d.batches || [];
-    const box = document.getElementById('admin-batch-list');
     box.innerHTML = '';
 
     const allEl = document.createElement('div');
@@ -305,14 +309,17 @@
     if (q) parts.push('q=' + encodeURIComponent(q));
     if (selectedAdminBatchId !== null) parts.push('batch_id=' + selectedAdminBatchId);
     const url = parts.length ? '/api/admin/users?' + parts.join('&') : '/api/admin/users';
+    const box = document.getElementById('admin-user-list');
+    box.innerHTML =
+      '<div class="list-item skeleton"></div><div class="list-item skeleton"></div><div class="list-item skeleton"></div><div class="list-item skeleton"></div>';
     const r = await fetch(url);
     if (r.status === 403) {
       document.getElementById('admin-app').classList.add('hidden');
       document.getElementById('admin-login-panel').classList.remove('hidden');
+      box.innerHTML = '';
       return;
     }
     const d = await r.json();
-    const box = document.getElementById('admin-user-list');
     box.innerHTML = '';
     const users = d.users || [];
     if (users.length === 0) {
@@ -450,65 +457,105 @@
   });
 
   async function loadEntries() {
-    const r = await fetch('/api/admin/user/' + currentUserId + '/entries?page=' + entriesPage);
-    const d = await r.json();
-    const tbody = document.getElementById('admin-entries-body');
-    tbody.innerHTML = '';
-    const totalPages = d.total_pages || 1;
-    document.getElementById('entries-page-label').textContent =
-      'Page ' + entriesPage + ' of ' + totalPages;
-    document.getElementById('btn-entries-prev').disabled = entriesPage <= 1;
-    document.getElementById('btn-entries-next').disabled = entriesPage >= totalPages;
-    (d.entries || []).forEach(function (e) {
-      const tr = document.createElement('tr');
-      const inId = 'ein-' + e.id;
-      const outId = 'eout-' + e.id;
-      const noteId = 'enote-' + e.id;
-      var outVia =
-        e.time_out && (e.time_out_method_label || e.time_out_method)
-          ? escapeHtml(e.time_out_method_label || '—')
-          : '—';
-      var inVia = escapeHtml(e.time_in_method_label || '—');
-      tr.innerHTML =
-        '<td><input type="datetime-local" id="' + inId + '" value="' + toLocalInput(e.time_in) + '"></td>' +
-        '<td class="method-cell muted">' + inVia + '</td>' +
-        '<td><input type="datetime-local" id="' + outId + '" value="' + toLocalInput(e.time_out) + '"></td>' +
-        '<td class="method-cell muted">' + outVia + '</td>' +
-        '<td>' + escapeHtml(e.duration_label) + '</td>' +
-        '<td><textarea id="' + noteId + '" rows="2" class="admin-entry-note"></textarea></td>' +
-        '<td><button type="button" class="secondary save-entry" data-id="' + e.id + '">Save</button> ' +
-        '<button type="button" class="danger del-entry" data-id="' + e.id + '">Delete</button></td>';
-      tbody.appendChild(tr);
-      document.getElementById(noteId).value = e.session_note || '';
-    });
-    tbody.querySelectorAll('.save-entry').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        const id = btn.getAttribute('data-id');
-        const tin = fromLocalInput(document.getElementById('ein-' + id).value);
-        const toutRaw = document.getElementById('eout-' + id).value;
-        const tout = toutRaw ? fromLocalInput(toutRaw) : null;
-        const res = await fetch('/api/admin/entry/' + id, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            time_in: tin,
-            time_out: tout,
-            session_note: document.getElementById('enote-' + id).value,
-          }),
+    if (!currentUserId) return;
+    const requestedPage = entriesPage;
+    const prevBtn = document.getElementById('btn-entries-prev');
+    const nextBtn = document.getElementById('btn-entries-next');
+    let totalPagesForButtons = 1;
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    try {
+      const tbody = document.getElementById('admin-entries-body');
+      var skRow =
+        '<tr class="table-skeleton-row"><td colspan="7"><div class="skeleton skeleton-inline"></div></td></tr>';
+      tbody.innerHTML = skRow + skRow + skRow + skRow + skRow;
+      const r = await fetch('/api/admin/user/' + currentUserId + '/entries?page=' + requestedPage);
+      const d = await r.json();
+      if (!r.ok) {
+        tbody.innerHTML = '';
+        return;
+      }
+      totalPagesForButtons = Math.max(1, d.total_pages || 1);
+      if (requestedPage !== entriesPage) {
+        await loadEntries();
+        return;
+      }
+      if (typeof d.page === 'number') {
+        entriesPage = d.page;
+      }
+      if (entriesPage > totalPagesForButtons) {
+        entriesPage = totalPagesForButtons;
+        await loadEntries();
+        return;
+      }
+      tbody.innerHTML = '';
+      document.getElementById('entries-page-label').textContent =
+        'Page ' + entriesPage + ' of ' + totalPagesForButtons;
+      lastEntryListTotalPages = totalPagesForButtons;
+      prevBtn.disabled = entriesPage <= 1;
+      nextBtn.disabled = entriesPage >= totalPagesForButtons;
+      (d.entries || []).forEach(function (e) {
+        const tr = document.createElement('tr');
+        const inId = 'ein-' + e.id;
+        const outId = 'eout-' + e.id;
+        const noteId = 'enote-' + e.id;
+        var outVia =
+          e.time_out && (e.time_out_method_label || e.time_out_method)
+            ? escapeHtml(e.time_out_method_label || '—')
+            : '—';
+        var inVia = escapeHtml(e.time_in_method_label || '—');
+        tr.innerHTML =
+          '<td><input type="datetime-local" id="' + inId + '" value="' + toLocalInput(e.time_in) + '"></td>' +
+          '<td class="method-cell muted">' + inVia + '</td>' +
+          '<td><input type="datetime-local" id="' + outId + '" value="' + toLocalInput(e.time_out) + '"></td>' +
+          '<td class="method-cell muted">' + outVia + '</td>' +
+          '<td>' + escapeHtml(e.duration_label) + '</td>' +
+          '<td><textarea id="' + noteId + '" rows="2" class="admin-entry-note"></textarea></td>' +
+          '<td><button type="button" class="secondary save-entry" data-id="' + e.id + '">Save</button> ' +
+          '<button type="button" class="danger del-entry" data-id="' + e.id + '">Delete</button></td>';
+        tbody.appendChild(tr);
+        document.getElementById(noteId).value = e.session_note || '';
+      });
+      tbody.querySelectorAll('.save-entry').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (btn.dataset.saving === '1') return;
+          btn.dataset.saving = '1';
+          btn.disabled = true;
+          try {
+            const id = btn.getAttribute('data-id');
+            const tin = fromLocalInput(document.getElementById('ein-' + id).value);
+            const toutRaw = document.getElementById('eout-' + id).value;
+            const tout = toutRaw ? fromLocalInput(toutRaw) : null;
+            const res = await fetch('/api/admin/entry/' + id, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                time_in: tin,
+                time_out: tout,
+                session_note: document.getElementById('enote-' + id).value,
+              }),
+            });
+            if (res.ok) {
+              openUser(currentUserId);
+            }
+          } finally {
+            btn.disabled = false;
+            delete btn.dataset.saving;
+          }
         });
-        if (res.ok) {
+      });
+      tbody.querySelectorAll('.del-entry').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('Delete this entry?')) return;
+          const id = btn.getAttribute('data-id');
+          await fetch('/api/admin/entry/' + id, { method: 'DELETE' });
           openUser(currentUserId);
-        }
+        });
       });
-    });
-    tbody.querySelectorAll('.del-entry').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        if (!confirm('Delete this entry?')) return;
-        const id = btn.getAttribute('data-id');
-        await fetch('/api/admin/entry/' + id, { method: 'DELETE' });
-        openUser(currentUserId);
-      });
-    });
+    } finally {
+      prevBtn.disabled = entriesPage <= 1;
+      nextBtn.disabled = entriesPage >= lastEntryListTotalPages;
+    }
   }
 
   document.getElementById('btn-entries-prev').addEventListener('click', async function () {
@@ -556,6 +603,8 @@
   });
 
   document.getElementById('btn-add-entry').addEventListener('click', async function () {
+    const btn = document.getElementById('btn-add-entry');
+    if (btn.dataset.saving === '1') return;
     const errEl = document.getElementById('entry-err');
     errEl.classList.add('hidden');
     const tin = fromLocalInput(document.getElementById('new-entry-in').value);
@@ -566,20 +615,27 @@
       errEl.classList.remove('hidden');
       return;
     }
-    const r = await fetch('/api/admin/user/' + currentUserId + '/entries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ time_in: tin, time_out: tout }),
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      errEl.textContent = d.error || 'Failed';
-      errEl.classList.remove('hidden');
-      return;
+    btn.dataset.saving = '1';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/admin/user/' + currentUserId + '/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ time_in: tin, time_out: tout }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        errEl.textContent = d.error || 'Failed';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      document.getElementById('new-entry-in').value = '';
+      document.getElementById('new-entry-out').value = '';
+      openUser(currentUserId);
+    } finally {
+      btn.disabled = false;
+      delete btn.dataset.saving;
     }
-    document.getElementById('new-entry-in').value = '';
-    document.getElementById('new-entry-out').value = '';
-    openUser(currentUserId);
   });
 
   // Auto-fill time-out to same day + 11 hours (net ~10 hours after lunch deduction).

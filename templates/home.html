@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block body_attrs %} data-page-skeleton="defer"{% endblock %}
 {% block title %}Home — Time Track OJT{% endblock %}
 {% block head_extra %}
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -36,7 +37,7 @@
     <div class="scan-desk-cam">
       <div id="scan-reader" class="scan-box"></div>
     </div>
-    <aside class="scan-desk-details" aria-label="Time in and time out details">
+    <aside class="scan-desk-details" id="scan-desk-details" aria-label="Time in and time out details">
       <div id="scan-result-placeholder" class="scan-result-placeholder">
         <p class="muted" style="margin:0">Time in / time out details appear here after a successful scan or manual SR-Code entry.</p>
       </div>
@@ -64,6 +65,15 @@
 </div>
 
 <div class="error hidden" id="scan-error"></div>
+
+<div class="modal-backdrop hidden" id="clock-action-modal" role="dialog" aria-modal="true" aria-labelledby="clock-action-title">
+  <div class="modal clock-action-modal">
+    <div class="clock-action-modal__badge clock-action-modal__badge--in" id="clock-action-badge" aria-hidden="true">IN</div>
+    <h3 class="card-title" id="clock-action-title">Timed in</h3>
+    <p class="muted clock-action-modal__sub" id="clock-action-sub"></p>
+    <button type="button" id="clock-action-dismiss">OK</button>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -83,6 +93,13 @@
   const resultLeft = document.getElementById('result-left');
   const resultSession = document.getElementById('result-session');
   const scanError = document.getElementById('scan-error');
+  const scanDeskDetails = document.getElementById('scan-desk-details');
+  const clockActionModal = document.getElementById('clock-action-modal');
+  const clockActionBadge = document.getElementById('clock-action-badge');
+  const clockActionTitle = document.getElementById('clock-action-title');
+  const clockActionSub = document.getElementById('clock-action-sub');
+  const clockActionDismiss = document.getElementById('clock-action-dismiss');
+  let clockActionTimer = null;
 
   async function tickClock() {
     try {
@@ -93,6 +110,9 @@
     } catch (e) {
       clockTime.textContent = new Date().toLocaleTimeString();
       clockDate.textContent = new Date().toDateString();
+    }
+    if (window.removePageSkeleton) {
+      window.removePageSkeleton();
     }
   }
   tickClock();
@@ -156,6 +176,47 @@
       'Last on this device: <strong>' + escapeHtml(verb) + '</strong> via <strong>' + escapeHtml(via) + '</strong>.';
   }
 
+  function hideClockActionModal() {
+    if (clockActionTimer) {
+      clearTimeout(clockActionTimer);
+      clockActionTimer = null;
+    }
+    clockActionModal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  function showClockActionModal(data) {
+    var u = data.user;
+    var isIn = data.action === 'time_in';
+    var via = data.entry_method === 'manual' ? 'Manual SR-Code' : 'Camera scan';
+    clockActionBadge.textContent = isIn ? 'IN' : 'OUT';
+    clockActionBadge.className =
+      'clock-action-modal__badge ' + (isIn ? 'clock-action-modal__badge--in' : 'clock-action-modal__badge--out');
+    clockActionTitle.textContent = isIn ? 'You are timed in' : 'You are timed out';
+    clockActionSub.innerHTML =
+      '<strong>' + escapeHtml(u.name) + '</strong><br><span class="muted">' +
+      escapeHtml(u.course) + '</span><br><span class="muted" style="margin-top:0.35rem;display:inline-block">' +
+      escapeHtml(via) + '</span>';
+    clockActionModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    clockActionDismiss.focus();
+    if (clockActionTimer) clearTimeout(clockActionTimer);
+    clockActionTimer = setTimeout(function () {
+      clockActionTimer = null;
+      hideClockActionModal();
+    }, 8000);
+  }
+
+  clockActionDismiss.addEventListener('click', hideClockActionModal);
+  clockActionModal.addEventListener('click', function (ev) {
+    if (ev.target === clockActionModal) hideClockActionModal();
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !clockActionModal.classList.contains('hidden')) {
+      hideClockActionModal();
+    }
+  });
+
   function applyScanResult(data) {
     clearResultHideTimer();
     scanResultPlaceholder.classList.add('hidden');
@@ -187,9 +248,11 @@
     }
     updateClockLastAction(data);
     scheduleHideResult();
+    showClockActionModal(data);
   }
 
   let scanCooldownUntil = 0;
+  var scanInFlight = false;
 
   async function postClock(rawCode, entryMethod) {
     var code = (rawCode || '').trim();
@@ -197,10 +260,15 @@
       showError('Enter an SR-Code or scan a QR code.');
       return;
     }
+    if (scanInFlight) {
+      return;
+    }
     var now = Date.now();
     if (now < scanCooldownUntil) return;
     scanCooldownUntil = now + RESULT_VISIBLE_MS + 400;
     clearError();
+    scanInFlight = true;
+    scanDeskDetails.classList.add('scan-desk-details--pending');
     try {
       var body = { entry_method: entryMethod };
       if (entryMethod === 'manual') {
@@ -228,6 +296,9 @@
       scanCooldownUntil = 0;
       hideAndResetResult();
       showError('Network error');
+    } finally {
+      scanInFlight = false;
+      scanDeskDetails.classList.remove('scan-desk-details--pending');
     }
   }
 

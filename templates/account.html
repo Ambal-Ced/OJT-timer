@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block body_attrs %} data-page-skeleton="defer"{% endblock %}
 {% block title %}Account — Time Track OJT{% endblock %}
 {% block content %}
 <header class="page-header">
@@ -109,6 +110,7 @@
   let selectedBatchName = '';
   let selectedUserId = null;
   let selectedEntryId = null;
+  let accountListInitialLoad = true;
 
   const stepBatches = document.getElementById('step-batches');
   const stepUsers = document.getElementById('step-users');
@@ -123,11 +125,21 @@
 
   async function fetchBatches(q) {
     const url = q ? '/api/batches?q=' + encodeURIComponent(q) : '/api/batches';
+    batchList.innerHTML = '';
+    if (accountListInitialLoad) {
+      batchList.innerHTML =
+        '<div class="list-item skeleton"></div><div class="list-item skeleton"></div>' +
+        '<div class="list-item skeleton"></div><div class="list-item skeleton"></div>';
+    }
     const r = await fetch(url);
     const d = await r.json();
     batchList.innerHTML = '';
     if (!d.batches || d.batches.length === 0) {
       batchList.innerHTML = '<p class="muted">No batches match.</p>';
+      accountListInitialLoad = false;
+      if (window.removePageSkeleton) {
+        window.removePageSkeleton();
+      }
       return;
     }
     d.batches.forEach(function (b) {
@@ -141,6 +153,10 @@
       });
       batchList.appendChild(el);
     });
+    accountListInitialLoad = false;
+    if (window.removePageSkeleton) {
+      window.removePageSkeleton();
+    }
   }
 
   batchSearch.addEventListener('input', function () {
@@ -239,13 +255,22 @@
   });
 
   async function loadDetail() {
+    const tbody = document.getElementById('detail-entries');
+    tbody.innerHTML = '';
+    var skRow =
+      '<tr class="table-skeleton-row"><td colspan="5"><div class="skeleton skeleton-inline"></div></td></tr>';
+    tbody.innerHTML = skRow + skRow + skRow + skRow + skRow + skRow;
     const r = await fetch('/api/account/user/' + selectedUserId + '/detail');
     if (r.status === 401) {
+      tbody.innerHTML = '';
       pwdModal.classList.remove('hidden');
       return null;
     }
     const d = await r.json();
-    if (!r.ok) return null;
+    if (!r.ok) {
+      tbody.innerHTML = '';
+      return null;
+    }
     stepUsers.classList.add('hidden');
     stepBatches.classList.add('hidden');
     stepDetail.classList.remove('hidden');
@@ -271,7 +296,6 @@
       '<span>' + escapeHtml(d.spent_label) + '</span> <span class="muted">(' + d.spent_hours + 'h ' + d.spent_minutes + 'm)</span>';
     document.getElementById('detail-left').innerHTML =
       '<span>' + escapeHtml(d.left_label) + '</span> <span class="muted">(' + d.left_hours + 'h ' + d.left_minutes + 'm)</span>';
-    const tbody = document.getElementById('detail-entries');
     tbody.innerHTML = '';
     document.getElementById('entry-note-panel').classList.add('hidden');
     selectedEntryId = null;

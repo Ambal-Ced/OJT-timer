@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head_extra %}{% endblock %}
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
   <div class="layout">
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -32,12 +32,25 @@
       </nav>
     </aside>
     <main>
+      <div id="page-skeleton-overlay" class="page-skeleton-overlay" aria-busy="true" aria-live="polite" aria-label="Loading page">
+        <div class="page-skeleton-shell">
+          <div class="page-skeleton-header">
+            <div class="skeleton skeleton-line skeleton-line--title"></div>
+            <div class="skeleton skeleton-line skeleton-line--lead"></div>
+            <div class="skeleton skeleton-line skeleton-line--lead short"></div>
+          </div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card skeleton-card--mid"></div>
+          <div class="skeleton skeleton-card skeleton-card--short"></div>
+        </div>
+      </div>
       {% block content %}{% endblock %}
     </main>
   </div>
   {% if supabase_url and supabase_anon_key %}
   <script type="module" src="{{ url_for('static', filename='js/supabase-client.mjs') }}"></script>
   {% endif %}
+  <script src="{{ url_for('static', filename='js/page-skeleton.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
