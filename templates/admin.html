@@ -117,15 +117,15 @@
 
     <h4 class="section-heading section-heading--loose">Time entries</h4>
     <p class="muted">Edit time in/out (local ISO). Empty time out = open session.</p>
-    <div class="table-responsive">
-      <table>
+    <div class="table-responsive table-responsive--admin-entries">
+      <table class="admin-entries-table">
         <thead>
           <tr><th>Time in</th><th>In via</th><th>Time out</th><th>Out via</th><th>Duration</th><th>Session note</th><th></th></tr>
         </thead>
         <tbody id="admin-entries-body"></tbody>
       </table>
     </div>
-    <div class="form-row entries-pagination">
+    <div class="entries-pagination" aria-label="Time entries pages">
       <button type="button" class="secondary" id="btn-entries-prev">Prev</button>
       <div class="entries-page-jump muted" role="group" aria-label="Page navigation">
         <span class="entries-page-jump__text">Page</span>
@@ -542,14 +542,15 @@
             : '—';
         var inVia = escapeHtml(e.time_in_method_label || '—');
         tr.innerHTML =
-          '<td><input type="datetime-local" id="' + inId + '" value="' + toLocalInput(e.time_in) + '"></td>' +
+          '<td class="admin-entries-table__dt"><input type="datetime-local" id="' + inId + '" value="' + toLocalInput(e.time_in) + '"></td>' +
           '<td class="method-cell muted">' + inVia + '</td>' +
-          '<td><input type="datetime-local" id="' + outId + '" value="' + toLocalInput(e.time_out) + '"></td>' +
+          '<td class="admin-entries-table__dt"><input type="datetime-local" id="' + outId + '" value="' + toLocalInput(e.time_out) + '"></td>' +
           '<td class="method-cell muted">' + outVia + '</td>' +
           '<td>' + escapeHtml(e.duration_label) + '</td>' +
-          '<td><textarea id="' + noteId + '" rows="2" class="admin-entry-note"></textarea></td>' +
-          '<td><button type="button" class="secondary save-entry" data-id="' + e.id + '">Save</button> ' +
-          '<button type="button" class="danger del-entry" data-id="' + e.id + '">Delete</button></td>';
+          '<td class="admin-entries-table__note"><textarea id="' + noteId + '" rows="2" class="admin-entry-note"></textarea></td>' +
+          '<td class="admin-entries-table__actions"><div class="admin-entry-actions">' +
+          '<button type="button" class="secondary save-entry" data-id="' + e.id + '">Save</button>' +
+          '<button type="button" class="danger del-entry" data-id="' + e.id + '">Delete</button></div></td>';
         tbody.appendChild(tr);
         document.getElementById(noteId).value = e.session_note || '';
       });
