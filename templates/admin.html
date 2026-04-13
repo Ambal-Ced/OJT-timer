@@ -125,9 +125,14 @@
         <tbody id="admin-entries-body"></tbody>
       </table>
     </div>
-    <div class="form-row" style="display:flex;align-items:center;gap:0.5rem;justify-content:flex-end;margin-top:0.5rem">
+    <div class="form-row entries-pagination">
       <button type="button" class="secondary" id="btn-entries-prev">Prev</button>
-      <span class="muted" id="entries-page-label"></span>
+      <div class="entries-page-jump muted" role="group" aria-label="Page navigation">
+        <span class="entries-page-jump__text">Page</span>
+        <input type="number" id="entries-page-input" class="entries-page-input" min="1" step="1" value="1" inputmode="numeric" autocomplete="off" aria-label="Page number">
+        <button type="button" class="secondary entries-page-go" id="btn-entries-go">Go</button>
+        <span class="entries-page-jump__text"> of <strong id="entries-page-total" class="entries-page-total-num">1</strong></span>
+      </div>
       <button type="button" class="secondary" id="btn-entries-next">Next</button>
     </div>
     <h4 class="section-heading">Add entry</h4>
@@ -456,6 +461,34 @@
     loadUserList();
   });
 
+  const entriesPageInput = document.getElementById('entries-page-input');
+  const entriesPageTotalEl = document.getElementById('entries-page-total');
+
+  function applyEntriesPageJump() {
+    if (!currentUserId) return;
+    var fromLabel = parseInt(entriesPageTotalEl.textContent, 10);
+    const total = Math.max(
+      1,
+      Number.isFinite(fromLabel) && fromLabel > 0 ? fromLabel : lastEntryListTotalPages
+    );
+    var raw = parseInt(entriesPageInput.value, 10);
+    if (Number.isNaN(raw)) raw = entriesPage;
+    var n = Math.min(Math.max(1, raw), total);
+    entriesPageInput.value = String(n);
+    entriesPageInput.max = String(total);
+    if (n === entriesPage) return;
+    entriesPage = n;
+    loadEntries();
+  }
+
+  entriesPageInput.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      applyEntriesPageJump();
+    }
+  });
+  document.getElementById('btn-entries-go').addEventListener('click', applyEntriesPageJump);
+
   async function loadEntries() {
     if (!currentUserId) return;
     const requestedPage = entriesPage;
@@ -464,6 +497,8 @@
     let totalPagesForButtons = 1;
     prevBtn.disabled = true;
     nextBtn.disabled = true;
+    entriesPageInput.disabled = true;
+    document.getElementById('btn-entries-go').disabled = true;
     try {
       const tbody = document.getElementById('admin-entries-body');
       var skRow =
@@ -489,9 +524,11 @@
         return;
       }
       tbody.innerHTML = '';
-      document.getElementById('entries-page-label').textContent =
-        'Page ' + entriesPage + ' of ' + totalPagesForButtons;
       lastEntryListTotalPages = totalPagesForButtons;
+      entriesPageTotalEl.textContent = String(totalPagesForButtons);
+      entriesPageInput.min = '1';
+      entriesPageInput.max = String(totalPagesForButtons);
+      entriesPageInput.value = String(entriesPage);
       prevBtn.disabled = entriesPage <= 1;
       nextBtn.disabled = entriesPage >= totalPagesForButtons;
       (d.entries || []).forEach(function (e) {
@@ -555,6 +592,8 @@
     } finally {
       prevBtn.disabled = entriesPage <= 1;
       nextBtn.disabled = entriesPage >= lastEntryListTotalPages;
+      entriesPageInput.disabled = !currentUserId;
+      document.getElementById('btn-entries-go').disabled = !currentUserId;
     }
   }
 
