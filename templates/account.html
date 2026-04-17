@@ -251,6 +251,15 @@
     return d.innerHTML;
   }
 
+  function formatEntryDateTime(iso) {
+    if (!iso) return '—';
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return iso;
+    const time = dt.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+    const date = dt.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+    return time + ' at ' + date;
+  }
+
   document.getElementById('pwd-cancel').addEventListener('click', function () {
     pwdModal.classList.add('hidden');
   });
@@ -350,7 +359,7 @@
       const btnIn = document.createElement('button');
       btnIn.type = 'button';
       btnIn.className = 'session-pick-btn';
-      btnIn.textContent = e.time_in;
+      btnIn.textContent = formatEntryDateTime(e.time_in);
       btnIn.addEventListener('click', function () {
         openEntryNotePanel(e);
       });
@@ -360,7 +369,7 @@
       const btnOut = document.createElement('button');
       btnOut.type = 'button';
       btnOut.className = 'session-pick-btn';
-      btnOut.textContent = e.time_out || '—';
+      btnOut.textContent = e.time_out ? formatEntryDateTime(e.time_out) : '—';
       btnOut.disabled = !e.time_out;
       if (e.time_out) {
         btnOut.addEventListener('click', function () {
@@ -464,9 +473,9 @@
   function openEntryNotePanel(e) {
     selectedEntryId = e.id;
     const panel = document.getElementById('entry-note-panel');
-    const out = e.time_out || '(still open)';
+    const out = e.time_out ? formatEntryDateTime(e.time_out) : '(still open)';
     document.getElementById('entry-note-heading').textContent =
-      'Goal & accomplishment — ' + e.time_in + ' → ' + out;
+      'Goal & accomplishment — ' + formatEntryDateTime(e.time_in) + ' → ' + out;
     document.getElementById('entry-session-note').value = e.session_note || '';
     document.getElementById('entry-note-saved').classList.add('hidden');
     panel.classList.remove('hidden');

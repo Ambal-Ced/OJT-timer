@@ -673,6 +673,19 @@ def normalize_iso_local_seconds(value):
     return dt.replace(second=0, microsecond=0).isoformat(timespec="seconds")
 
 
+def normalize_time_in_dt(dt: datetime) -> datetime:
+    """
+    New rule: if time-in minutes are 0..10, snap down to HH:00.
+    Seconds are always forced to 0.
+    """
+    if not dt:
+        return dt
+    dt = dt.replace(second=0, microsecond=0)
+    if 0 <= dt.minute < 11:
+        return dt.replace(minute=0)
+    return dt
+
+
 def seconds_to_hm(total_seconds):
     if total_seconds < 0:
         total_seconds = 0
@@ -842,7 +855,8 @@ def api_scan():
 
     user_id = row["id"]
     now = now_ph()
-    now_s = now.isoformat(timespec="seconds")
+    now_in = normalize_time_in_dt(now)
+    now_s = now_in.isoformat(timespec="seconds")
 
     try:
         _acquire_user_clock_lock(db, cur, user_id)
@@ -860,12 +874,12 @@ def api_scan():
             )
             action = "time_out"
         else:
-            cur.execute(
+        cur.execute(
                 """
                 INSERT INTO time_entries (user_id, time_in, time_out, time_in_method, time_out_method)
                 VALUES (?, ?, NULL, ?, NULL)
                 """,
-                (user_id, now_s, method),
+            (user_id, now_s, method),
             )
             action = "time_in"
         db.commit()
@@ -2407,7 +2421,9 @@ def api_admin_entry_update(entry_id):
     if time_in is None:
         return jsonify({"error": "time_in required"}), 400
     try:
-        parse_dt(time_in)
+        dt_in = parse_dt(time_in)
+        if dt_in:
+            time_in = normalize_time_in_dt(dt_in).isoformat(timespec="seconds")
         if time_out is not None and time_out != "":
             parse_dt(time_out)
     except ValueError:
@@ -2450,7 +2466,9 @@ def api_admin_entry_create(user_id):
     if not time_in:
         return jsonify({"error": "time_in required"}), 400
     try:
-        parse_dt(time_in)
+        dt_in = parse_dt(time_in)
+        if dt_in:
+            time_in = normalize_time_in_dt(dt_in).isoformat(timespec="seconds")
         if time_out:
             parse_dt(time_out)
     except ValueError:
