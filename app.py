@@ -874,12 +874,12 @@ def api_scan():
             )
             action = "time_out"
         else:
-        cur.execute(
+            cur.execute(
                 """
                 INSERT INTO time_entries (user_id, time_in, time_out, time_in_method, time_out_method)
                 VALUES (?, ?, NULL, ?, NULL)
                 """,
-            (user_id, now_s, method),
+                (user_id, now_s, method),
             )
             action = "time_in"
         db.commit()
