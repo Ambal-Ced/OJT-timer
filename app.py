@@ -71,14 +71,43 @@ SUPABASE_SERVICE_ROLE_KEY = _env_first(
 )
 SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "ojt-photos").strip()
 
-# Use Philippine local time everywhere (store timestamps as naive "local" ISO strings).
-PH_TZ = ZoneInfo("Asia/Manila")
+# All attendance times are Asia/Manila (Philippine) civil time, stored as naive ISO strings
+# (components are the wall clock in Manila, not the browser or the server host's local zone).
+MANILA_TZ_NAME = "Asia/Manila"
+PH_TZ = ZoneInfo(MANILA_TZ_NAME)
+# Time-in between :00 and :10 (inclusive) snaps down to HH:00 (see normalize_time_in_dt).
+TIME_IN_SNAP_END_MINUTE = 10
+# Client may send clock_utc_ms (same basis as Home clock skew); ignore if too far from server.
+SCAN_CLIENT_CLOCK_MAX_DRIFT_MS = 10 * 60 * 1000
 
 
 def now_ph():
-    # Keep seconds=0 so durations don't end up like 9h 59m
-    # when the UI shows clean 08:00 → 17:00.
+    # Current instant → Philippine wall time (naive), seconds zeroed for clean duration math.
     return datetime.now(PH_TZ).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def _ph_naive_wall_from_utc_ms(ms: int) -> datetime:
+    """Convert a UTC instant (epoch ms) to Philippine (Asia/Manila) civil time; never host local TZ."""
+    return datetime.fromtimestamp(ms / 1000, tz=PH_TZ).replace(
+        tzinfo=None, second=0, microsecond=0
+    )
+
+
+def now_ph_for_scan(*, client_utc_ms):
+    """
+    'Now' for clock in/out in Asia/Manila only: prefer the Home page skew-synced instant
+    (epoch ms → Manila wall time via PH_TZ) when sane, else `now_ph()`. The browser's
+    local time zone is not used—only the shared instant, interpreted in Manila.
+    """
+    server_ms = int(time.time() * 1000)
+    if client_utc_ms is not None:
+        try:
+            cm = int(client_utc_ms)
+        except (TypeError, ValueError):
+            cm = None
+        if cm is not None and abs(cm - server_ms) <= SCAN_CLIENT_CLOCK_MAX_DRIFT_MS:
+            return _ph_naive_wall_from_utc_ms(cm)
+    return now_ph()
 
 
 _CACHE = {}
@@ -675,13 +704,13 @@ def normalize_iso_local_seconds(value):
 
 def normalize_time_in_dt(dt: datetime) -> datetime:
     """
-    New rule: if time-in minutes are 0..10, snap down to HH:00.
+    Grace time-in: minutes :00 through :10 (inclusive) record as HH:00.
     Seconds are always forced to 0.
     """
     if not dt:
         return dt
     dt = dt.replace(second=0, microsecond=0)
-    if 0 <= dt.minute < 11:
+    if int(dt.minute) <= TIME_IN_SNAP_END_MINUTE:
         return dt.replace(minute=0)
     return dt
 
@@ -809,7 +838,7 @@ def api_server_time():
             "date_display": now.strftime("%Y-%m-%d"),
             "time_display": now.strftime("%H:%M:%S"),
             "weekday": now.strftime("%A"),
-            "tz": "Asia/Manila",
+            "tz": MANILA_TZ_NAME,
             # Client uses utc_ms + local clock for 1s ticks; re-sync occasionally to limit load.
             "utc_ms": utc_ms,
         }
@@ -854,7 +883,10 @@ def api_scan():
         return jsonify({"error": msg}), 404
 
     user_id = row["id"]
-    now = now_ph()
+    raw_ms = data.get("clock_utc_ms")
+    if raw_ms is None:
+        raw_ms = data.get("utc_ms")
+    now = now_ph_for_scan(client_utc_ms=raw_ms)
     now_in = normalize_time_in_dt(now)
     now_s = now_in.isoformat(timespec="seconds")
 
@@ -927,6 +959,7 @@ def api_scan():
 
     return jsonify(
         {
+            "tz": MANILA_TZ_NAME,
             "action": action,
             "entry_method": method,
             "user": user_row_to_dict(row),
@@ -1368,11 +1401,18 @@ def _draw_front_id_text(template, full_name, course):
     # Place text into the large band below the photo (the red rectangle area in the template).
     # Start a bit below the photo, but clamp to a stable ratio so it doesn't crowd the frame.
     y0 = max(bottom + max(10, int(round(im_h * 0.01))), int(round(im_h * 0.63)))
-    # Reduce side padding so we can render larger fonts.
-    pad_x = max(10, int(round(im_w * 0.03)))
+    # Narrower side padding = wider text box so fit_font() doesn't shrink names as aggressively.
+    pad_x = max(8, int(round(im_w * 0.022)))
     x0 = pad_x
     x1 = im_w - pad_x
-    line_gap = max(10, int(round(im_h * 0.012)))
+    line_gap = max(12, int(round(im_h * 0.014)))
+    # Min sizes prevent unreadably small text when names are long (fit_font shrinks to fit width).
+    _nm_first_max = max(200, int(round(im_h * 0.42)))
+    _nm_first_min = 72
+    _nm_rest_max = max(128, int(round(im_h * 0.30)))
+    _nm_rest_min = 52
+    _course_max = max(118, int(round(im_h * 0.26)))
+    _course_min = 44
 
     name = (full_name or "").strip()
     if not name and not course:
@@ -1404,7 +1444,7 @@ def _draw_front_id_text(template, full_name, course):
             while i < len(words):
                 candidate = f"{line} {words[i]}"
                 # Use a medium probe size to decide wrapping, independent of final font size.
-                probe = _pick_id_font(max(24, int(round(im_h * 0.05))))
+                probe = _pick_id_font(max(32, int(round(im_h * 0.06))))
                 bbox = draw.textbbox((0, 0), candidate, font=probe)
                 if (bbox[2] - bbox[0]) <= (x1 - x0):
                     line = candidate
@@ -1420,7 +1460,7 @@ def _draw_front_id_text(template, full_name, course):
     # Make the first word very large, then render the rest of the name (wrapped) large too.
     if first:
         up1 = first.upper()
-        f2 = fit_font(up1, max_size=max(140, int(round(im_h * 0.33))), min_size=48)
+        f2 = fit_font(up1, max_size=_nm_first_max, min_size=_nm_first_min)
         b2 = draw.textbbox((0, 0), up1, font=f2)
         fx = x0 + ((x1 - x0) - (b2[2] - b2[0])) // 2
         draw.text((fx, y0), up1, fill=(120, 0, 0), font=f2)
@@ -1430,7 +1470,7 @@ def _draw_front_id_text(template, full_name, course):
         rest = " ".join(name.split()[1:]).strip()
         if rest:
             for line in wrap_words_to_lines(rest.upper(), max_lines=2):
-                f1 = fit_font(line, max_size=max(92, int(round(im_h * 0.22))), min_size=34)
+                f1 = fit_font(line, max_size=_nm_rest_max, min_size=_nm_rest_min)
                 b1 = draw.textbbox((0, 0), line, font=f1)
                 nx = x0 + ((x1 - x0) - (b1[2] - b1[0])) // 2
                 draw.text((nx, y0), line, fill=(120, 0, 0), font=f1)
@@ -1439,7 +1479,7 @@ def _draw_front_id_text(template, full_name, course):
     c = (course or "").strip()
     if c:
         for line in wrap_words_to_lines(c, max_lines=2):
-            f3 = fit_font(line, max_size=max(88, int(round(im_h * 0.19))), min_size=30)
+            f3 = fit_font(line, max_size=_course_max, min_size=_course_min)
             b3 = draw.textbbox((0, 0), line, font=f3)
             cx = x0 + ((x1 - x0) - (b3[2] - b3[0])) // 2
             draw.text((cx, y0), line, fill=(120, 0, 0), font=f3)

@@ -307,7 +307,11 @@
     scanInFlight = true;
     scanDeskDetails.classList.add('scan-desk-details--pending');
     try {
-      var body = { entry_method: entryMethod };
+      var body = {
+        entry_method: entryMethod,
+        // Same instant as the Manila clock on this page (server skew); used for time-in grace rounding.
+        clock_utc_ms: Math.round(Date.now() + clockSkewMs),
+      };
       if (entryMethod === 'manual') {
         body.sr_code = code;
       } else {
