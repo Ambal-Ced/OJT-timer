@@ -1489,12 +1489,15 @@ def _draw_front_id_text(template, full_name, course):
     im_w, im_h = template.size
     _left, _top, _right, bottom = _front_photo_box(im_w, im_h)
     # Band below the photo for trainee name + course.
-    y0 = max(bottom + max(8, int(round(im_h * 0.008))), int(round(im_h * 0.602)))
+    y0 = max(
+        bottom + max(14, int(round(im_h * 0.022))),
+        int(round(im_h * 0.596)),
+    )
     pad_x = max(4, int(round(im_w * 0.010)))
     x0 = pad_x
     x1 = im_w - pad_x
     text_w = x1 - x0
-    line_gap = max(8, int(round(im_h * 0.010)))
+    line_gap = max(11, int(round(im_h * 0.016)))
     name_block_end = int(round(im_h * 0.92))
     bottom_reserve = int(round(im_h * 0.05))
 
@@ -1507,7 +1510,7 @@ def _draw_front_id_text(template, full_name, course):
         return
     # Reserve vertical space for first-name emphasis line (between full name and course).
     nick_line_reserve = (
-        int(round(im_h * 0.038)) if len(name_words) > 1 else 0
+        int(round(im_h * 0.052)) if len(name_words) > 1 else 0
     )
     # Vertical space for stacked full-name lines; keep above template degree art.
     name_v_budget = max(
@@ -1579,7 +1582,7 @@ def _draw_front_id_text(template, full_name, course):
 
         # First word only, slightly larger than full-name size (like reference ID “nickname” line).
         if len(name_words) > 1:
-            y0 += int(round(im_h * 0.004))
+            y0 += int(round(im_h * 0.014))
             first_only = name_words[0].upper()
             emph_lo = name_font_px + 1
             emph_hi = min(
@@ -1655,7 +1658,7 @@ def _draw_front_id_text(template, full_name, course):
         return lines_out
 
     if course_str:
-        y0 += max(0, int(round(im_h * 0.006)))
+        y0 += max(0, int(round(im_h * 0.018)))
         for line in wrap_course_lines(course_str, max_lines=4):
             f3 = fit_font_single(line, max_size=course_max, min_size=course_min)
             b3 = draw.textbbox((0, 0), line, font=f3)
