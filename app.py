@@ -161,7 +161,7 @@ _BACK_QR_INSET = 0
 _ID_CARD_CSS_VIEWPORT_W = 360
 _ID_CSS_REM_PX = 16.0
 # Full-name block target scale (rem at 16px root) — ~body/large UI text on card (~30–34px on template).
-_ID_FULL_NAME_DISPLAY_REM = 1.8
+_ID_FULL_NAME_DISPLAY_REM = 1.1
 
 
 def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
@@ -1497,8 +1497,23 @@ def _draw_front_id_text(template, full_name, course):
     line_gap = max(8, int(round(im_h * 0.010)))
     name_block_end = int(round(im_h * 0.92))
     bottom_reserve = int(round(im_h * 0.05))
-    # Vertical space for stacked name lines (wrap + long-name breaks); keep above template degree art.
-    name_v_budget = max(120, name_block_end - y0 - bottom_reserve - int(round(im_h * 0.012)))
+
+    name = (full_name or "").strip()
+    course_str = (course or "").strip()
+    if not name and not course_str:
+        return
+    name_words = [w for w in name.split() if w]
+    if not name_words and not course_str:
+        return
+    # Reserve vertical space for first-name emphasis line (between full name and course).
+    nick_line_reserve = (
+        int(round(im_h * 0.038)) if len(name_words) > 1 else 0
+    )
+    # Vertical space for stacked full-name lines; keep above template degree art.
+    name_v_budget = max(
+        120,
+        name_block_end - y0 - bottom_reserve - int(round(im_h * 0.012)) - nick_line_reserve,
+    )
 
     rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
     # Normal reading size: rem map + card caps (never re-use a multi-rem *floor* or it forces giant text).
@@ -1518,14 +1533,6 @@ def _draw_front_id_text(template, full_name, course):
 
     course_max = min(40, int(im_h * 0.042), _id_text_px_from_rem(im_w, 2.0))
     course_min = max(16, _id_text_px_from_rem(im_w, 0.9))
-
-    name = (full_name or "").strip()
-    course_str = (course or "").strip()
-    if not name and not course_str:
-        return
-    name_words = [w for w in name.split() if w]
-    if not name_words and not course_str:
-        return
 
     draw = ImageDraw.Draw(template)
 
@@ -1567,7 +1574,52 @@ def _draw_front_id_text(template, full_name, course):
             chosen = (font, lines)
 
         font, lines = chosen
+        name_font_px = int(getattr(font, "size", name_min))
         y0 = _draw_name_lines(font, lines, y0) + line_gap
+
+        # First word only, slightly larger than full-name size (like reference ID “nickname” line).
+        if len(name_words) > 1:
+            y0 += int(round(im_h * 0.004))
+            first_only = name_words[0].upper()
+            emph_lo = name_font_px + 1
+            emph_hi = min(
+                max(emph_lo + 1, int(round(name_font_px * 1.17))),
+                name_font_px + 16,
+                int(im_h * 0.092),
+                84,
+            )
+            if emph_hi < emph_lo:
+                emph_hi = emph_lo
+            emph_font = None
+            emph_lines = None
+            for es in range(emph_hi, emph_lo - 1, -1):
+                ef = _pick_id_font(es)
+                if _id_line_pixel_width(draw, ef, first_only) <= text_w:
+                    sub = [first_only]
+                else:
+                    sub = _id_break_line_by_chars(draw, ef, first_only, text_w)
+                if sub and all(
+                    _id_line_pixel_width(draw, ef, seg) <= text_w for seg in sub
+                ):
+                    emph_font = ef
+                    emph_lines = sub
+                    break
+            if emph_font is None or emph_lines is None:
+                ef = _pick_id_font(emph_lo)
+                sub = (
+                    [first_only]
+                    if _id_line_pixel_width(draw, ef, first_only) <= text_w
+                    else _id_break_line_by_chars(draw, ef, first_only, text_w)
+                )
+                emph_font = ef
+                emph_lines = sub or [first_only]
+            for eline in emph_lines:
+                eb = draw.textbbox((0, 0), eline, font=emph_font)
+                ex = x0 + (text_w - (eb[2] - eb[0])) // 2
+                draw.text((ex, y0), eline, fill=(120, 0, 0), font=emph_font)
+                y0 += (eb[3] - eb[1]) + line_gap
+            if emph_lines:
+                y0 -= line_gap
 
     def fit_font_single(text, max_size, min_size):
         s = max_size
