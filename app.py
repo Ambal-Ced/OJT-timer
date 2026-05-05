@@ -1424,8 +1424,42 @@ def _pick_id_font(size):
     return ImageFont.load_default()
 
 
+def _id_line_pixel_width(draw, font, text):
+    b = draw.textbbox((0, 0), text, font=font)
+    return b[2] - b[0]
+
+
+def _id_break_line_by_chars(draw, font, text, max_text_w):
+    """Split a single string into multiple lines so each fits max_text_w (long names / one token)."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    if _id_line_pixel_width(draw, font, text) <= max_text_w:
+        return [text]
+    out = []
+    rest = text
+    while rest:
+        lo, hi = 1, len(rest)
+        best = 0
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            w = _id_line_pixel_width(draw, font, rest[:mid])
+            if w <= max_text_w:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        if best == 0:
+            best = 1
+        chunk = rest[:best].strip()
+        if chunk:
+            out.append(chunk)
+        rest = rest[best:].lstrip()
+    return out if out else [text[:1]]
+
+
 def _id_wrap_words_to_width(draw, font, words, max_text_w):
-    """Greedy word wrap; each line must measure <= max_text_w with the given font."""
+    """Greedy word wrap, then break any line that is still wider than the card (overflow → extra rows)."""
     if not words:
         return []
     lines = []
@@ -1436,14 +1470,19 @@ def _id_wrap_words_to_width(draw, font, words, max_text_w):
         i += 1
         while i < n:
             candidate = f"{line} {words[i]}"
-            bbox = draw.textbbox((0, 0), candidate, font=font)
-            if (bbox[2] - bbox[0]) <= max_text_w:
+            if _id_line_pixel_width(draw, font, candidate) <= max_text_w:
                 line = candidate
                 i += 1
             else:
                 break
         lines.append(line)
-    return lines
+    final = []
+    for line in lines:
+        if _id_line_pixel_width(draw, font, line) <= max_text_w:
+            final.append(line)
+        else:
+            final.extend(_id_break_line_by_chars(draw, font, line, max_text_w))
+    return final
 
 
 def _draw_front_id_text(template, full_name, course):
@@ -1458,9 +1497,8 @@ def _draw_front_id_text(template, full_name, course):
     line_gap = max(8, int(round(im_h * 0.010)))
     name_block_end = int(round(im_h * 0.92))
     bottom_reserve = int(round(im_h * 0.05))
-    # Keep the name block within the band above the degree text (no 3× slack — that allowed overflow).
-    name_v_budget_base = max(200, name_block_end - y0 - bottom_reserve)
-    name_v_budget = int(name_v_budget_base * 1.12)
+    # Vertical space for stacked name lines (wrap + long-name breaks); keep above template degree art.
+    name_v_budget = max(120, name_block_end - y0 - bottom_reserve - int(round(im_h * 0.012)))
 
     rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
     # Normal reading size: rem map + card caps (never re-use a multi-rem *floor* or it forces giant text).
@@ -1475,6 +1513,8 @@ def _draw_front_id_text(template, full_name, course):
         int(round(im_h * 0.022)),
         _id_text_px_from_rem(im_w, 0.95),
     )
+    # Smallest point size to try when many wrapped lines need to fit (long names).
+    name_abs_floor_px = 14
 
     course_max = min(40, int(im_h * 0.042), _id_text_px_from_rem(im_w, 2.0))
     course_min = max(16, _id_text_px_from_rem(im_w, 0.9))
@@ -1504,7 +1544,7 @@ def _draw_front_id_text(template, full_name, course):
         up_words = [w.upper() for w in name_words]
         chosen = None
         size = name_max
-        while size >= name_min:
+        while size >= name_abs_floor_px:
             font = _pick_id_font(size)
             lines = _id_wrap_words_to_width(draw, font, up_words, text_w)
             if not lines:
@@ -1521,8 +1561,8 @@ def _draw_front_id_text(template, full_name, course):
             size -= 1
 
         if chosen is None:
-            # Still too tall: use minimum size (always fits width via wrapping).
-            font = _pick_id_font(name_min)
+            # Rare: still taller than band — use smallest font so full name wraps without clipping.
+            font = _pick_id_font(name_abs_floor_px)
             lines = _id_wrap_words_to_width(draw, font, up_words, text_w)
             chosen = (font, lines)
 
