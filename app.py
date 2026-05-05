@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import re
 import sqlite3
@@ -135,6 +136,9 @@ def cache_clear_prefix(prefix: str):
 # ID templates live in repo-level `resources/`
 ID_FRONT_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "front_id.png")
 ID_BACK_TEMPLATE_PATH = os.path.join(BASE_DIR, "resources", "back_id.png")
+# Bundled TrueType font (Noto Sans Bold). Pillow often has no built-in TTFs; without this,
+# ImageFont.load_default() is used and ignores point size — names stay tiny on Vercel/Linux.
+_ID_FONT_BUNDLED_BOLD = os.path.join(BASE_DIR, "resources", "fonts", "NotoSans-Bold.ttf")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 
 _FRONT_REF_W = 709
@@ -1375,21 +1379,26 @@ def _back_qr_box(im_w, im_h):
 
 
 def _pick_id_font(size):
-    # Prefer system fonts; fall back to PIL default bitmap font.
+    """TrueType only — scalable sizes. Bitmap default font makes all ID text microscopic."""
     for fp in (
+        _ID_FONT_BUNDLED_BOLD,
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/ARIALBD.TTF",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/ARIAL.TTF",
-        "C:/Windows/Fonts/calibri.ttf",
+        "C:/Windows/Fonts/calibrib.ttf",
         "C:/Windows/Fonts/Calibri.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
         "C:/Windows/Fonts/SegoeUI.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     ):
         try:
-            if os.path.isfile(fp):
+            if fp and os.path.isfile(fp):
                 return ImageFont.truetype(fp, size=size)
         except OSError:
-            pass
-    # Pillow wheels usually ship DejaVu fonts (works on Linux/Vercel).
+            continue
     try:
         pil_dir = os.path.dirname(PIL.__file__)
         for fp in (
@@ -1401,10 +1410,18 @@ def _pick_id_font(size):
     except Exception:
         pass
     try:
-        # Common on Linux images
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
+    except OSError:
+        pass
+    try:
         return ImageFont.truetype("DejaVuSans.ttf", size=size)
     except OSError:
-        return ImageFont.load_default()
+        pass
+    logging.getLogger(__name__).error(
+        "ID card: no TrueType font found (add resources/fonts/NotoSans-Bold.ttf). "
+        "Using PIL bitmap fallback; text will not scale."
+    )
+    return ImageFont.load_default()
 
 
 def _id_wrap_words_to_width(draw, font, words, max_text_w):
@@ -1449,9 +1466,9 @@ def _draw_front_id_text(template, full_name, course):
     rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
     name_max = min(
         rem_asp,
-        int(im_h * 0.40),
-        int(im_w * 0.55),
-        420,
+        int(im_h * 0.42),
+        int(im_w * 0.56),
+        450,
     )
     name_min = max(
         56,
