@@ -153,10 +153,11 @@ _BACK_QR_TOP = 382
 _BACK_QR_RIGHT = 534
 _BACK_QR_BOTTOM = 692
 _BACK_QR_INSET = 0
-# Front ID typography: map CSS rem (16px root) to PNG pixels using a ~360px-wide “preview” width,
-# so e.g. 4rem reads large on the exported card (~126px min at 709px template width).
+# Front ID typography: map CSS rem (16px root) to PNG pixels using a ~360px-wide “preview” width.
 _ID_CARD_CSS_VIEWPORT_W = 360
 _ID_CSS_REM_PX = 16.0
+# Full-name block target scale (rem at 16px root); capped later so glyphs fit the template.
+_ID_FULL_NAME_DISPLAY_REM = 10.0
 
 
 def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
@@ -1406,93 +1407,141 @@ def _pick_id_font(size):
         return ImageFont.load_default()
 
 
+def _id_wrap_words_to_width(draw, font, words, max_text_w):
+    """Greedy word wrap; each line must measure <= max_text_w with the given font."""
+    if not words:
+        return []
+    lines = []
+    i = 0
+    n = len(words)
+    while i < n:
+        line = words[i]
+        i += 1
+        while i < n:
+            candidate = f"{line} {words[i]}"
+            bbox = draw.textbbox((0, 0), candidate, font=font)
+            if (bbox[2] - bbox[0]) <= max_text_w:
+                line = candidate
+                i += 1
+            else:
+                break
+        lines.append(line)
+    return lines
+
+
 def _draw_front_id_text(template, full_name, course):
     im_w, im_h = template.size
-    left, top, right, bottom = _front_photo_box(im_w, im_h)
-    # Place text into the large band below the photo (the red rectangle area in the template).
-    # Start a bit below the photo, but clamp to a stable ratio so it doesn't crowd the frame.
-    y0 = max(bottom + max(10, int(round(im_h * 0.01))), int(round(im_h * 0.63)))
-    # Minimal horizontal padding so fit_font() keeps ~4rem-scale text when possible.
-    pad_x = max(6, int(round(im_w * 0.012)))
+    _left, _top, _right, bottom = _front_photo_box(im_w, im_h)
+    # Band below the photo for trainee name + course.
+    y0 = max(bottom + max(8, int(round(im_h * 0.008))), int(round(im_h * 0.602)))
+    pad_x = max(4, int(round(im_w * 0.010)))
     x0 = pad_x
     x1 = im_w - pad_x
-    line_gap = max(14, int(round(im_h * 0.016)))
-    # Target ~4rem for first name line (see _id_text_px_from_rem); generous caps; mins floor readability.
-    _nm_first_max = max(420, int(round(im_h * 0.62)))
-    _nm_first_min = max(_id_text_px_from_rem(im_w, 4.0), 112)
-    _nm_rest_max = max(260, int(round(im_h * 0.40)))
-    _nm_rest_min = max(_id_text_px_from_rem(im_w, 3.0), 84)
-    _course_max = max(210, int(round(im_h * 0.34)))
-    _course_min = max(_id_text_px_from_rem(im_w, 2.75), 68)
+    text_w = x1 - x0
+    line_gap = max(8, int(round(im_h * 0.010)))
+    name_block_end = int(round(im_h * 0.92))
+    bottom_reserve = int(round(im_h * 0.05))
+    # Baseline vertical allowance for the full name; multiplied by 3 so height is rarely the limiting factor.
+    name_v_budget_base = max(200, name_block_end - y0 - bottom_reserve)
+    name_v_budget = name_v_budget_base * 3
+
+    # ~10rem target mapped to px; uniform font on every line of the full name.
+    rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
+    name_max = min(rem_asp, int(im_h * 0.26), 260)
+    name_min = max(44, int(round(im_h * 0.048)), _id_text_px_from_rem(im_w, 2.5))
+
+    course_max = min(int(im_h * 0.12), _id_text_px_from_rem(im_w, 7.0), 110)
+    course_min = max(44, _id_text_px_from_rem(im_w, 2.75))
 
     name = (full_name or "").strip()
-    if not name and not course:
+    course_str = (course or "").strip()
+    if not name and not course_str:
         return
-    first = name.split()[0] if name else ""
-
-    def fit_font(text, max_size, min_size):
-        size = max_size
-        draw = ImageDraw.Draw(template)
-        while size >= min_size:
-            font = _pick_id_font(size)
-            bbox = draw.textbbox((0, 0), text, font=font)
-            tw = bbox[2] - bbox[0]
-            if tw <= (x1 - x0):
-                return font
-            size -= 1
-        return _pick_id_font(min_size)
+    name_words = [w for w in name.split() if w]
+    if not name_words and not course_str:
+        return
 
     draw = ImageDraw.Draw(template)
-    def wrap_words_to_lines(text, max_lines):
+
+    def _draw_name_lines(font, lines, start_y):
+        y = start_y
+        for line in lines:
+            b = draw.textbbox((0, 0), line, font=font)
+            w_line = b[2] - b[0]
+            nx = x0 + (text_w - w_line) // 2
+            draw.text((nx, y), line, fill=(120, 0, 0), font=font)
+            y += (b[3] - b[1]) + line_gap
+        return y - line_gap if lines else start_y
+
+    # --- Full name: one font size for all lines; largest size that fits width + vertical budget. ---
+    if name_words:
+        up_words = [w.upper() for w in name_words]
+        chosen = None
+        size = name_max
+        while size >= name_min:
+            font = _pick_id_font(size)
+            lines = _id_wrap_words_to_width(draw, font, up_words, text_w)
+            if not lines:
+                size -= 1
+                continue
+            tot_h = 0
+            for line in lines:
+                b = draw.textbbox((0, 0), line, font=font)
+                tot_h += (b[3] - b[1]) + line_gap
+            tot_h -= line_gap
+            if tot_h <= name_v_budget:
+                chosen = (font, lines)
+                break
+            size -= 1
+
+        if chosen is None:
+            # Still too tall: use minimum size (always fits width via wrapping).
+            font = _pick_id_font(name_min)
+            lines = _id_wrap_words_to_width(draw, font, up_words, text_w)
+            chosen = (font, lines)
+
+        font, lines = chosen
+        y0 = _draw_name_lines(font, lines, y0) + line_gap
+
+    def fit_font_single(text, max_size, min_size):
+        s = max_size
+        while s >= min_size:
+            font = _pick_id_font(s)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            if (bbox[2] - bbox[0]) <= text_w:
+                return font
+            s -= 1
+        return _pick_id_font(min_size)
+
+    def wrap_course_lines(text, max_lines):
         words = [w for w in (text or "").split() if w]
         if not words:
             return []
-        lines = []
+        probe = _pick_id_font(max(_id_text_px_from_rem(im_w, 3.5), int(round(im_h * 0.055))))
+        lines_out = []
         i = 0
-        while i < len(words) and len(lines) < max_lines:
+        while i < len(words) and len(lines_out) < max_lines:
             line = words[i]
             i += 1
             while i < len(words):
-                candidate = f"{line} {words[i]}"
-                # Use a medium probe size to decide wrapping, independent of final font size.
-                probe = _pick_id_font(max(_id_text_px_from_rem(im_w, 3.0), int(round(im_h * 0.08))))
-                bbox = draw.textbbox((0, 0), candidate, font=probe)
-                if (bbox[2] - bbox[0]) <= (x1 - x0):
-                    line = candidate
+                cand = f"{line} {words[i]}"
+                bbox = draw.textbbox((0, 0), cand, font=probe)
+                if (bbox[2] - bbox[0]) <= text_w:
+                    line = cand
                     i += 1
                 else:
                     break
-            lines.append(line)
-        # If we ran out of lines but still have words, append them to the last line.
-        if i < len(words) and lines:
-            lines[-1] = (lines[-1] + " " + " ".join(words[i:])).strip()
-        return lines
+            lines_out.append(line)
+        if i < len(words) and lines_out:
+            lines_out[-1] = (lines_out[-1] + " " + " ".join(words[i:])).strip()
+        return lines_out
 
-    # Make the first word very large, then render the rest of the name (wrapped) large too.
-    if first:
-        up1 = first.upper()
-        f2 = fit_font(up1, max_size=_nm_first_max, min_size=_nm_first_min)
-        b2 = draw.textbbox((0, 0), up1, font=f2)
-        fx = x0 + ((x1 - x0) - (b2[2] - b2[0])) // 2
-        draw.text((fx, y0), up1, fill=(120, 0, 0), font=f2)
-        y0 += (b2[3] - b2[1]) + line_gap
-
-    if name:
-        rest = " ".join(name.split()[1:]).strip()
-        if rest:
-            for line in wrap_words_to_lines(rest.upper(), max_lines=4):
-                f1 = fit_font(line, max_size=_nm_rest_max, min_size=_nm_rest_min)
-                b1 = draw.textbbox((0, 0), line, font=f1)
-                nx = x0 + ((x1 - x0) - (b1[2] - b1[0])) // 2
-                draw.text((nx, y0), line, fill=(120, 0, 0), font=f1)
-                y0 += (b1[3] - b1[1]) + line_gap
-
-    c = (course or "").strip()
-    if c:
-        for line in wrap_words_to_lines(c, max_lines=4):
-            f3 = fit_font(line, max_size=_course_max, min_size=_course_min)
+    if course_str:
+        y0 += max(0, int(round(im_h * 0.006)))
+        for line in wrap_course_lines(course_str, max_lines=4):
+            f3 = fit_font_single(line, max_size=course_max, min_size=course_min)
             b3 = draw.textbbox((0, 0), line, font=f3)
-            cx = x0 + ((x1 - x0) - (b3[2] - b3[0])) // 2
+            cx = x0 + (text_w - (b3[2] - b3[0])) // 2
             draw.text((cx, y0), line, fill=(120, 0, 0), font=f3)
             y0 += (b3[3] - b3[1]) + line_gap
 
