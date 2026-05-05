@@ -161,7 +161,7 @@ _BACK_QR_INSET = 0
 _ID_CARD_CSS_VIEWPORT_W = 360
 _ID_CSS_REM_PX = 16.0
 # Full-name block target scale (rem at 16px root) — ~body/large UI text on card (~30–34px on template).
-_ID_FULL_NAME_DISPLAY_REM = 1
+_ID_FULL_NAME_DISPLAY_REM = 1.8
 
 
 def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
