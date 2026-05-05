@@ -1402,10 +1402,10 @@ def _draw_front_id_text(template, full_name, course):
     # Start a bit below the photo, but clamp to a stable ratio so it doesn't crowd the frame.
     y0 = max(bottom + max(10, int(round(im_h * 0.01))), int(round(im_h * 0.63)))
     # Narrower side padding = wider text box so fit_font() doesn't shrink names as aggressively.
-    pad_x = max(8, int(round(im_w * 0.022)))
+    pad_x = max(8, int(round(im_w * 1)))
     x0 = pad_x
     x1 = im_w - pad_x
-    line_gap = max(12, int(round(im_h * 0.014)))
+    line_gap = max(12, int(round(im_h * 1)))
     # Min sizes prevent unreadably small text when names are long (fit_font shrinks to fit width).
     _nm_first_max = max(200, int(round(im_h * 0.42)))
     _nm_first_min = 72
@@ -1444,7 +1444,7 @@ def _draw_front_id_text(template, full_name, course):
             while i < len(words):
                 candidate = f"{line} {words[i]}"
                 # Use a medium probe size to decide wrapping, independent of final font size.
-                probe = _pick_id_font(max(32, int(round(im_h * 0.06))))
+                probe = _pick_id_font(max(32, int(round(im_h * 1))))
                 bbox = draw.textbbox((0, 0), candidate, font=probe)
                 if (bbox[2] - bbox[0]) <= (x1 - x0):
                     line = candidate
