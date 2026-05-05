@@ -157,7 +157,7 @@ _BACK_QR_INSET = 0
 _ID_CARD_CSS_VIEWPORT_W = 360
 _ID_CSS_REM_PX = 16.0
 # Full-name block target scale (rem at 16px root); capped later so glyphs fit the template.
-_ID_FULL_NAME_DISPLAY_REM = 10.0
+_ID_FULL_NAME_DISPLAY_REM = 30.0
 
 
 def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
@@ -1445,10 +1445,19 @@ def _draw_front_id_text(template, full_name, course):
     name_v_budget_base = max(200, name_block_end - y0 - bottom_reserve)
     name_v_budget = name_v_budget_base * 3
 
-    # ~10rem target mapped to px; uniform font on every line of the full name.
+    # ~30rem target → px via _id_text_px_from_rem; then clamp by card geometry (do not use a tiny hard cap).
     rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
-    name_max = min(rem_asp, int(im_h * 0.26), 260)
-    name_min = max(44, int(round(im_h * 0.048)), _id_text_px_from_rem(im_w, 2.5))
+    name_max = min(
+        rem_asp,
+        int(im_h * 0.40),
+        int(im_w * 0.55),
+        420,
+    )
+    name_min = max(
+        56,
+        int(round(im_h * 0.055)),
+        _id_text_px_from_rem(im_w, 6.0),
+    )
 
     course_max = min(int(im_h * 0.12), _id_text_px_from_rem(im_w, 7.0), 110)
     course_min = max(44, _id_text_px_from_rem(im_w, 2.75))
