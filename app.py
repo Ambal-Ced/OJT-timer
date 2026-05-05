@@ -160,8 +160,8 @@ _BACK_QR_INSET = 0
 # Front ID typography: map CSS rem (16px root) to PNG pixels using a ~360px-wide “preview” width.
 _ID_CARD_CSS_VIEWPORT_W = 360
 _ID_CSS_REM_PX = 16.0
-# Full-name block target scale (rem at 16px root); capped later so glyphs fit the template.
-_ID_FULL_NAME_DISPLAY_REM = 8.0
+# Full-name block target scale (rem at 16px root) — ~body/large UI text on card (~30–34px on template).
+_ID_FULL_NAME_DISPLAY_REM = 1
 
 
 def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
@@ -1458,26 +1458,26 @@ def _draw_front_id_text(template, full_name, course):
     line_gap = max(8, int(round(im_h * 0.010)))
     name_block_end = int(round(im_h * 0.92))
     bottom_reserve = int(round(im_h * 0.05))
-    # Baseline vertical allowance for the full name; multiplied by 3 so height is rarely the limiting factor.
+    # Keep the name block within the band above the degree text (no 3× slack — that allowed overflow).
     name_v_budget_base = max(200, name_block_end - y0 - bottom_reserve)
-    name_v_budget = name_v_budget_base * 3
+    name_v_budget = int(name_v_budget_base * 1.12)
 
-    # ~30rem target → px via _id_text_px_from_rem; then clamp by card geometry (do not use a tiny hard cap).
     rem_asp = _id_text_px_from_rem(im_w, _ID_FULL_NAME_DISPLAY_REM)
+    # Normal reading size: rem map + card caps (never re-use a multi-rem *floor* or it forces giant text).
     name_max = min(
         rem_asp,
-        int(im_h * 0.42),
-        int(im_w * 0.56),
-        450,
+        int(im_h * 0.10),
+        int(im_w * 0.12),
+        60,
     )
     name_min = max(
-        56,
-        int(round(im_h * 0.055)),
-        _id_text_px_from_rem(im_w, 6.0),
+        20,
+        int(round(im_h * 0.022)),
+        _id_text_px_from_rem(im_w, 0.95),
     )
 
-    course_max = min(int(im_h * 0.12), _id_text_px_from_rem(im_w, 7.0), 110)
-    course_min = max(44, _id_text_px_from_rem(im_w, 2.75))
+    course_max = min(40, int(im_h * 0.042), _id_text_px_from_rem(im_w, 2.0))
+    course_min = max(16, _id_text_px_from_rem(im_w, 0.9))
 
     name = (full_name or "").strip()
     course_str = (course or "").strip()
