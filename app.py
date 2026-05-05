@@ -153,6 +153,17 @@ _BACK_QR_TOP = 382
 _BACK_QR_RIGHT = 534
 _BACK_QR_BOTTOM = 692
 _BACK_QR_INSET = 0
+# Front ID typography: map CSS rem (16px root) to PNG pixels using a ~360px-wide “preview” width,
+# so e.g. 4rem reads large on the exported card (~126px min at 709px template width).
+_ID_CARD_CSS_VIEWPORT_W = 360
+_ID_CSS_REM_PX = 16.0
+
+
+def _id_text_px_from_rem(template_width_px: float, rem: float) -> int:
+    """Convert web rem (at 16px root) to font px on the ID template."""
+    return int(round(template_width_px * (_ID_CSS_REM_PX * rem / _ID_CARD_CSS_VIEWPORT_W)))
+
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 ADMIN_PASSWORD = os.environ.get("OJT_ADMIN_PASSWORD", "Melo1234")
 # Bind address. Use 0.0.0.0 to allow other PCs on the network to connect.
@@ -1401,18 +1412,18 @@ def _draw_front_id_text(template, full_name, course):
     # Place text into the large band below the photo (the red rectangle area in the template).
     # Start a bit below the photo, but clamp to a stable ratio so it doesn't crowd the frame.
     y0 = max(bottom + max(10, int(round(im_h * 0.01))), int(round(im_h * 0.63)))
-    # Narrower side padding = wider text box so fit_font() doesn't shrink names as aggressively.
-    pad_x = max(8, int(round(im_w * 1)))
+    # Minimal horizontal padding so fit_font() keeps ~4rem-scale text when possible.
+    pad_x = max(6, int(round(im_w * 0.012)))
     x0 = pad_x
     x1 = im_w - pad_x
-    line_gap = max(12, int(round(im_h * 1)))
-    # Min sizes prevent unreadably small text when names are long (fit_font shrinks to fit width).
-    _nm_first_max = max(200, int(round(im_h * 0.42)))
-    _nm_first_min = 72
-    _nm_rest_max = max(128, int(round(im_h * 0.30)))
-    _nm_rest_min = 52
-    _course_max = max(118, int(round(im_h * 0.26)))
-    _course_min = 44
+    line_gap = max(14, int(round(im_h * 0.016)))
+    # Target ~4rem for first name line (see _id_text_px_from_rem); generous caps; mins floor readability.
+    _nm_first_max = max(420, int(round(im_h * 0.62)))
+    _nm_first_min = max(_id_text_px_from_rem(im_w, 4.0), 112)
+    _nm_rest_max = max(260, int(round(im_h * 0.40)))
+    _nm_rest_min = max(_id_text_px_from_rem(im_w, 3.0), 84)
+    _course_max = max(210, int(round(im_h * 0.34)))
+    _course_min = max(_id_text_px_from_rem(im_w, 2.75), 68)
 
     name = (full_name or "").strip()
     if not name and not course:
@@ -1444,7 +1455,7 @@ def _draw_front_id_text(template, full_name, course):
             while i < len(words):
                 candidate = f"{line} {words[i]}"
                 # Use a medium probe size to decide wrapping, independent of final font size.
-                probe = _pick_id_font(max(32, int(round(im_h * 1))))
+                probe = _pick_id_font(max(_id_text_px_from_rem(im_w, 3.0), int(round(im_h * 0.08))))
                 bbox = draw.textbbox((0, 0), candidate, font=probe)
                 if (bbox[2] - bbox[0]) <= (x1 - x0):
                     line = candidate
@@ -1469,7 +1480,7 @@ def _draw_front_id_text(template, full_name, course):
     if name:
         rest = " ".join(name.split()[1:]).strip()
         if rest:
-            for line in wrap_words_to_lines(rest.upper(), max_lines=2):
+            for line in wrap_words_to_lines(rest.upper(), max_lines=4):
                 f1 = fit_font(line, max_size=_nm_rest_max, min_size=_nm_rest_min)
                 b1 = draw.textbbox((0, 0), line, font=f1)
                 nx = x0 + ((x1 - x0) - (b1[2] - b1[0])) // 2
@@ -1478,7 +1489,7 @@ def _draw_front_id_text(template, full_name, course):
 
     c = (course or "").strip()
     if c:
-        for line in wrap_words_to_lines(c, max_lines=2):
+        for line in wrap_words_to_lines(c, max_lines=4):
             f3 = fit_font(line, max_size=_course_max, min_size=_course_min)
             b3 = draw.textbbox((0, 0), line, font=f3)
             cx = x0 + ((x1 - x0) - (b3[2] - b3[0])) // 2
