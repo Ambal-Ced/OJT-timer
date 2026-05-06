@@ -14,6 +14,7 @@ from urllib.parse import quote
 from flask import Flask, g, jsonify, render_template, request, send_file, session
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
+from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
 import PIL
 from qrcode.constants import ERROR_CORRECT_M
@@ -738,6 +739,91 @@ def seconds_to_hm(total_seconds):
     h = total_seconds // 3600
     m = (total_seconds % 3600) // 60
     return h, m, f"{h}h {m}m"
+
+
+def display_first_name_word(full_name):
+    parts = [p for p in (full_name or "").strip().split() if p]
+    return parts[0] if parts else "—"
+
+
+def _has_recorded_time_out(value):
+    if value is None:
+        return False
+    return str(value).strip() != ""
+
+
+def format_entry_datetime_account_pdf(iso_val):
+    """
+    Mirrors the Account page `formatEntryDateTime` convention (Philippine-long style):
+    lowercase 12-hour time plus long month/date/year, joined with ' at '.
+    Stored values are naive Asia/Manila wall time.
+    """
+    if not iso_val:
+        return "—"
+    try:
+        dt = parse_dt(str(iso_val).strip())
+    except (TypeError, ValueError):
+        return str(iso_val)
+    if not dt:
+        return "—"
+    h12 = dt.hour % 12
+    if h12 == 0:
+        h12 = 12
+    ampm = "am" if dt.hour < 12 else "pm"
+    time_part = f"{h12}:{dt.minute:02d} {ampm}"
+    month_name = dt.strftime("%B")
+    date_part = f"{month_name} {dt.day}, {dt.year}"
+    return f"{time_part} at {date_part}"
+
+
+def build_account_time_record_pdf_bytes(*, trainee_name, entries_rows, now_dt):
+    """entries_rows: list of dict-like rows with time_in, time_out (same semantics as DB)."""
+    from fpdf import FPDF
+
+    def _latin1_safe(s):
+        return ("" if s is None else str(s)).encode("latin-1", "replace").decode("latin-1")
+
+    first = display_first_name_word(trainee_name)
+
+    pdf = FPDF(orientation="L")
+    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", size=13)
+    pdf.cell(text=_latin1_safe("Time in / Time out record"))
+    pdf.ln(7)
+    pdf.set_font("helvetica", size=10)
+    pdf.cell(text=_latin1_safe(f"Trainee: {(trainee_name or '').strip()}"))
+    pdf.ln(8)
+
+    if not entries_rows:
+        pdf.set_font("helvetica", style="I", size=10)
+        pdf.cell(text=_latin1_safe("(No sessions recorded yet.)"))
+        return bytes(pdf.output())
+
+    body = []
+    for e in entries_rows:
+        tin_s = format_entry_datetime_account_pdf(e["time_in"])
+        tout_raw = e["time_out"]
+        if _has_recorded_time_out(tout_raw):
+            tout_s = format_entry_datetime_account_pdf(tout_raw)
+        else:
+            tout_s = "—"
+        dur = entry_duration_seconds(e["time_in"], e["time_out"], now_dt)
+        _dh, _dm, dlab = seconds_to_hm(dur)
+        body.append((_latin1_safe(first), _latin1_safe(tin_s), _latin1_safe(tout_s), _latin1_safe(dlab)))
+
+    pdf.set_font("helvetica", size=9)
+    with pdf.table(
+        col_widths=(1, 2, 2, 1.1),
+        width=pdf.epw,
+        text_align="LEFT",
+        line_height=6,
+        padding=(2, 2, 2, 2),
+    ) as table:
+        table.row(["First name", "Time in", "Time out", "Total hours"])
+        for row in body:
+            table.row(list(row))
+    return bytes(pdf.output())
 
 
 def round_time_out(dt):
@@ -2148,6 +2234,49 @@ def api_account_user_detail(user_id):
             "total_entries": total_entries,
             "total_pages": total_pages,
         }
+    )
+
+
+@app.get("/api/account/user/<int:user_id>/time-record.pdf")
+def api_account_user_time_record_pdf(user_id):
+    err = require_account_user(user_id)
+    if err:
+        return err
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT name, sr_code FROM ojt_users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    cur.execute(
+        """
+        SELECT time_in, time_out FROM time_entries WHERE user_id = ?
+        ORDER BY time_in ASC
+        """,
+        (user_id,),
+    )
+    entries_rows = list(cur.fetchall())
+    trainee_name = (row["name"] or "").strip()
+    sr = (row["sr_code"] or "").strip()
+    base_fn = secure_filename(sr) if sr else ""
+    if not base_fn:
+        base_fn = f"trainee-{user_id}"
+    download_name = f"{base_fn}-time-record.pdf"
+
+    try:
+        pdf_bytes = build_account_time_record_pdf_bytes(
+            trainee_name=trainee_name,
+            entries_rows=entries_rows,
+            now_dt=now_ph(),
+        )
+    except ImportError:
+        return jsonify({"error": "PDF export unavailable"}), 501
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=download_name,
     )
 
 

@@ -37,6 +37,7 @@
 <div class="card hidden" id="step-detail">
   <button type="button" class="secondary" id="btn-back-users">← People in batch</button>
   <button type="button" class="secondary" id="btn-logout-account" style="margin-left:0.5rem">Lock account</button>
+  <button type="button" class="secondary" id="btn-download-time-record" style="margin-left:0.5rem">Download time in record (PDF)</button>
   <h3 class="card-title card-title--spaced" id="detail-name"></h3>
   <p class="muted" id="detail-meta"></p>
   <div class="grid-2" style="margin-top:1rem">
@@ -434,10 +435,52 @@
     a.remove();
   }
 
+  function triggerBlobDownload(blob, filename) {
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 2000);
+  }
+
   function downloadBoth(frontUrl, backUrl) {
     triggerDownload(frontUrl);
     setTimeout(function () { triggerDownload(backUrl); }, 250);
   }
+
+  document.getElementById('btn-download-time-record').addEventListener('click', async function () {
+    if (!selectedUserId) return;
+    var url = '/api/account/user/' + selectedUserId + '/time-record.pdf';
+    var r = await fetch(url, { credentials: 'same-origin' });
+    if (r.status === 401) {
+      pwdModal.classList.remove('hidden');
+      pwdForName.textContent = document.getElementById('detail-name').textContent || '';
+      pwdInput.focus();
+      return;
+    }
+    if (!r.ok) {
+      var msg = 'Could not download time record.';
+      try {
+        var jd = await r.json();
+        if (jd.error) msg = jd.error;
+      } catch (_) {}
+      alert(msg);
+      return;
+    }
+    var fname = 'time-record.pdf';
+    var cd = r.headers.get('Content-Disposition') || '';
+    var fm = cd.match(/filename\*?=(?:UTF-8''|)([^;\n]+)/i);
+    if (fm && fm[1]) {
+      fname = decodeURIComponent(fm[1].trim().replace(/^["']|["']$/g, ''));
+    } else {
+      fm = cd.match(/filename="([^"]+)"/i);
+      if (fm && fm[1]) fname = fm[1];
+    }
+    triggerBlobDownload(await r.blob(), fname);
+  });
 
   document.getElementById('btn-update-photo').addEventListener('click', async function () {
     if (!selectedUserId) return;
