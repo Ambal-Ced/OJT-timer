@@ -741,11 +741,6 @@ def seconds_to_hm(total_seconds):
     return h, m, f"{h}h {m}m"
 
 
-def display_first_name_word(full_name):
-    parts = [p for p in (full_name or "").strip().split() if p]
-    return parts[0] if parts else "—"
-
-
 def _has_recorded_time_out(value):
     if value is None:
         return False
@@ -783,7 +778,7 @@ def build_account_time_record_pdf_bytes(*, trainee_name, entries_rows, now_dt):
     def _latin1_safe(s):
         return ("" if s is None else str(s)).encode("latin-1", "replace").decode("latin-1")
 
-    first = display_first_name_word(trainee_name)
+    full_cell = _latin1_safe((trainee_name or "").strip()) or "—"
 
     pdf = FPDF(orientation="L")
     pdf.set_auto_page_break(auto=True, margin=14)
@@ -810,17 +805,17 @@ def build_account_time_record_pdf_bytes(*, trainee_name, entries_rows, now_dt):
             tout_s = "—"
         dur = entry_duration_seconds(e["time_in"], e["time_out"], now_dt)
         _dh, _dm, dlab = seconds_to_hm(dur)
-        body.append((_latin1_safe(first), _latin1_safe(tin_s), _latin1_safe(tout_s), _latin1_safe(dlab)))
+        body.append((full_cell, _latin1_safe(tin_s), _latin1_safe(tout_s), _latin1_safe(dlab)))
 
     pdf.set_font("helvetica", size=9)
     with pdf.table(
-        col_widths=(1, 2, 2, 1.1),
+        col_widths=(1.6, 1.85, 1.85, 1),
         width=pdf.epw,
         text_align="LEFT",
         line_height=6,
         padding=(2, 2, 2, 2),
     ) as table:
-        table.row(["First name", "Time in", "Time out", "Total hours"])
+        table.row(["Full name", "Time in", "Time out", "Total hours"])
         for row in body:
             table.row(list(row))
     return bytes(pdf.output())
